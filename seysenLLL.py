@@ -29,19 +29,9 @@ def read_matrix(input_file, verbose=False):
     for i in range(len(data)):
         data[i] = list(map(int, data[i][1:-1].split(' ')))
 
-    # Simple code: assume the matrix is a q-ary lattice, with a q-vector at the
-    # end.
-    # Now check if GH < q.
-    n, q = len(data), data[-1][-1]
-    GH = (n / (2 * pi * exp(1)))**.5
-    GH *= exp(sum(log(data[i][i]) for i in range(n)) / n)
-    if args.verbose:
-        print(f'q-ary vector is at {q/GH:.6f}*GH.')
-    assert GH < q
-
     # Parse the matrix now
     # Give the basis with column vectors.
-    return np.transpose(np.array(data, dtype=np.int64))
+    return np.transpose(np.array(data, dtype=np.float64))
 
 
 def output_matrix(output_file, basis):
@@ -88,28 +78,32 @@ def seysen_reduce(R, U):
         U[:m, m:] = -U[:m, :m] @ W
 
 
-def half_lagrange_reduce(R, do_even, delta=.99):
+def lagrange_reduce(R, delta=.99):
     """
     Tries to perform lagrange reduction, on all the even or odd indices.
     :param R: upper-triangular matrix
     :param nthreads: number of threads that we can use.
-    :param do_even: when true, reduces [b0, b1], [b2, b3], ..., otherwise [b1, b2], [b3, b4], ...
-    :return: transformation matrix U to lagrange such that RU is half-lagrange-reduced.
+    :return: pair of:
+        1) a transformation matrix U such that RU is Lagrange-reduced,
+        2) a bool whether some reduction happened.
     """
     n = len(R)
-    U = np.identity(n, dtype=np.int64)
-    is_modified = False
+    U = np.identity(n, dtype=np.float64)
+    is_modified, skip = False, False
 
-    for pos in range(0 if do_even else 1, n - 1, 2):
-        b0x, b0y = R[pos, pos], R[pos + 1, pos]  # vector b0
+    for pos in range(0, n - 1):
+        if skip:
+            skip = False
+            continue
+
+        b0x = R[pos, pos]  # vector b0
         b1x, b1y = R[pos, pos + 1], R[pos + 1, pos + 1]  # vector b1
 
-        # TODO: make this 0.99 a parameter `delta`.
-        if b1x * b1x + b1y * b1y < delta * (b0x * b0x + b0y * b0y):
-            is_modified = True
+        if b1x * b1x + b1y * b1y < delta * (b0x * b0x):
+            is_modified = skip = True
 
             # Reduce by making a swap and size-reducing b0 w.r.t. b1.
-            q = round((b0x * b1x + b0y * b1y) / (b1x * b1x + b1y * b1y))
+            q = round((b0x * b1x) / (b1x * b1x + b1y * b1y))
             # [b0', b1'] = [b1, b0 - q b1] = [b0, b1] U, with U=[[0,1],[1,q]]
             U[pos, pos] = 0
             U[pos + 1, pos] = U[pos, pos + 1] = 1
@@ -123,82 +117,35 @@ def seysen_lll(B, delta, measure_time=True):
     :return: transformation matrix U such that BU is LLL reduced.
     """
     n = len(B)
-    U = np.identity(n, dtype=np.int64)
-    U1 = np.zeros((n, n), dtype=np.int64)
-    U3 = np.zeros((n, n), dtype=np.int64)
+    U = np.identity(n, dtype=np.float64)
+    U1 = np.zeros((n, n), dtype=np.float64)
 
-    time_qr, time_seysen, time_lagrange, time_matmul = 0, 0, 0, 0
+    t_qr, t_seysen, t_lagrange, t_matmul = 0, 0, 0, 0
 
     is_modified = True
     while is_modified:
         t1 = perf_counter_ns()
-
-        R1 = np.linalg.qr(B @ U, mode='r')
-        # R1 = np.linalg.qr(B, mode='r')
-
+        R = np.linalg.qr(B @ U, mode='r')
         t2 = perf_counter_ns()
-        time_qr += t2 - t1
-        t1 = t2
+        # R is upper-triangular
+        seysen_reduce(R, U1)
+        t3 = perf_counter_ns()
+        U2, is_modified = lagrange_reduce(R @ U1, delta)
+        t4 = perf_counter_ns()
+        U = U @ (U1 @ U2)
+        t5 = perf_counter_ns()
 
-        # R1 is upper-triangular
-        seysen_reduce(R1, U1)
-        R1 = R1 @ U1
-
-        t2 = perf_counter_ns()
-        time_seysen += t2 - t1
-        t1 = t2
-
-        U2, is_modified = half_lagrange_reduce(R1, True, delta)
-        # is_modified = (U2 != np.identity(n)).any()
-
-        t2 = perf_counter_ns()
-        time_lagrange += t2 - t1
-        t1 = t2
-
-        # U12 = U1 @ U2
-        # U = U @ U12
-        # B = B @ U12
-
-        # t2 = perf_counter_ns()
-        # time_matmul += t2 - t1
-        # t1 = t2
-
-        R2 = np.linalg.qr(R1 @ U2, mode='r')
-        # R2 = np.linalg.qr(B, mode='r')
-
-        t2 = perf_counter_ns()
-        time_qr += t2 - t1
-        t1 = t2
-
-        # R2 is upper-triangular
-        seysen_reduce(R2, U3)
-        R2 = R2 @ U3
-
-        t2 = perf_counter_ns()
-        time_seysen += t2 - t1
-        t1 = t2
-
-        U4, is_modified2 = half_lagrange_reduce(R2, False, delta)
-        is_modified = is_modified or is_modified2
-
-        t2 = perf_counter_ns()
-        time_lagrange += t2 - t1
-        t1 = t2
-
-        # U34 = U3 @ U4
-        # U = U @ U34
-        # B = B @ U34
-        U = U @ U1 @ U2 @ U3 @ U4
-
-        t2 = perf_counter_ns()
-        time_matmul += t2 - t1
-        t1 = t2
+        if measure_time:
+            t_qr += t2 - t1
+            t_seysen += t3 - t2
+            t_lagrange += t4 - t3
+            t_matmul += t5 - t4
 
     if measure_time:
-        print(f"Time QR factorization: {time_qr:18,d} ns\n"
-              f"Time Seysen reduction: {time_seysen:18,d} ns\n"
-              f"Time Lagrange reduct.: {time_lagrange:18,d} ns\n"
-              f"Time Matrix Multipli.: {time_matmul:18,d} ns")
+        print(f"Time QR factorization: {t_qr:18,d} ns\n"
+              f"Time Seysen reduction: {t_seysen:18,d} ns\n"
+              f"Time Lagrange reduct.: {t_lagrange:18,d} ns\n"
+              f"Time Matrix Multipli.: {t_matmul:18,d} ns")
 
     return B @ U, U
 
@@ -217,6 +164,15 @@ def __main__(args):
 
     if args.verbose:
         print("Matrix is read.")
+
+    # Assumption: B is a q-ary lattice, with a q-vector at the end.
+    n, q = len(B), B[-1][-1]
+    log_slope = -log(args.delta - 0.25) / 2
+    log_det = sum(log(x) for x in B.diagonal())
+    lhs, rhs = n * log(q), log_slope * n * (n-1) / 2 + log_det
+    if args.verbose:
+        print(f'q-ary vector: e^{{{lhs:.3f}}}, allowed: q > e^{{{rhs:.3f}}}')
+    assert lhs > rhs, 'q-ary vector could be part of an LLL reduced basis!'
 
     Bred, U = seysen_lll(B, args.delta, args.verbose)
 
@@ -272,5 +228,6 @@ if __name__ == '__main__':
     assert 0.25 < args.delta and args.delta < 1.0, \
            'Invalid value given for delta!'
 
+    np.set_printoptions(linewidth=275, suppress=True)
     with threadpool_limits(limits=args.cores):
         __main__(args)
