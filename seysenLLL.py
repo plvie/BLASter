@@ -1,18 +1,29 @@
 #!/usr/bin/python3
+"""
+Script to perform lattice reduction, using Seysen Size-Reduction, but with the aim of outputting a
+lattice with quality similar to what LLL achieves.
+"""
+
 import argparse
-import numpy as np
-from math import log, prod, pi, exp
+from math import log, prod
 from multiprocessing import cpu_count
-from threadpoolctl import threadpool_limits
 from time import perf_counter_ns
+
+import numpy as np
+from threadpoolctl import threadpool_limits
 
 
 def read_matrix(input_file, verbose=False):
+    """
+    Read a matrix from a file, using the FPLLL `latticegen` format.
+    :param input_file: file name, or None (reads from stdin).
+    :param verbose: ask for input when having no file name
+    :return: a matrix
+    """
     data = []
     if input_file is None:
         if verbose:
             print("Supply a matrix in fpLLL format:")
-
         data.append(input())
         while data[-1][-2] != ']':
             data.append(input())
@@ -26,12 +37,21 @@ def read_matrix(input_file, verbose=False):
     data[0] = data[0][1:]
     data[-1] = data[-1][:-1]
 
-    for i in range(len(data)):
-        data[i] = list(map(int, data[i][1:-1].split(' ')))
+    q = 0
+    if True:
+        # Put the q-ary vectors at the start.
+        for i in range(len(data)):
+            data[i] = list(reversed(list(map(int, data[i][1:-1].split(' ')))))
+        data = list(reversed(data))
+        q = data[0][0]
+    else:
+        for i in range(len(data)):
+            data[i] = list(map(int, data[i][1:-1].split(' ')))
+        q = data[-1][-1]
 
     # Parse the matrix now
     # Give the basis with column vectors.
-    return np.transpose(np.array(data, dtype=np.float64))
+    return np.transpose(np.array(data, dtype=np.float64)), q
 
 
 def output_matrix(output_file, basis):
@@ -123,6 +143,7 @@ def seysen_lll(B, delta, measure_time=True):
     t_qr, t_seysen, t_lagrange, t_matmul = 0, 0, 0, 0
 
     is_modified = True
+    niterations = 0
     while is_modified:
         t1 = perf_counter_ns()
         R = np.linalg.qr(B @ U, mode='r')
@@ -136,13 +157,15 @@ def seysen_lll(B, delta, measure_time=True):
         t5 = perf_counter_ns()
 
         if measure_time:
+            niterations += 1
             t_qr += t2 - t1
             t_seysen += t3 - t2
             t_lagrange += t4 - t3
             t_matmul += t5 - t4
 
     if measure_time:
-        print(f"Time QR factorization: {t_qr:18,d} ns\n"
+        print(f"Iterations: {niterations:6d}\n"
+              f"Time QR factorization: {t_qr:18,d} ns\n"
               f"Time Seysen reduction: {t_seysen:18,d} ns\n"
               f"Time Lagrange reduct.: {t_lagrange:18,d} ns\n"
               f"Time Matrix Multipli.: {t_matmul:18,d} ns")
@@ -160,14 +183,12 @@ def rhf(profile):
 
 
 def __main__(args):
-    B = read_matrix(args.input, args.verbose)
+    B, q = read_matrix(args.input, args.verbose)
 
-    if args.verbose:
-        print("Matrix is read.")
-
-    # Assumption: B is a q-ary lattice, with a q-vector at the end.
-    n, q = len(B), B[-1][-1]
-    log_slope = -log(args.delta - 0.25) / 2
+    # Assumption: B is a q-ary lattice.
+    n = len(B)
+    # log_slope = -log(args.delta - 0.25) / 2
+    log_slope = log(1.02)  # Assume a RHF of 1.02
     log_det = sum(log(x) for x in B.diagonal())
     lhs, rhs = n * log(q), log_slope * n * (n-1) / 2 + log_det
     if args.verbose:
@@ -225,8 +246,7 @@ if __name__ == '__main__':
             help='Output file (default=stdout)')
 
     args = parser.parse_args()
-    assert 0.25 < args.delta and args.delta < 1.0, \
-           'Invalid value given for delta!'
+    assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value given for delta!'
 
     np.set_printoptions(linewidth=275, suppress=True)
     with threadpool_limits(limits=args.cores):
