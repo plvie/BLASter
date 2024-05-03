@@ -5,7 +5,7 @@
 #define ZZ long long // integer type
 
 #define DECL(N) \
-	void lll_reduce_ ## N(FT *R, ZZ *U, int rowstride, FT delta)
+	void lll_reduce_ ## N(FT *R, ZZ *U, FT delta)
 extern "C" {
 	DECL( 1); DECL( 2); DECL( 3); DECL( 4); DECL( 5); DECL( 6); DECL( 7); DECL( 8);
 	DECL( 9); DECL(10); DECL(11); DECL(12); DECL(13); DECL(14); DECL(15); DECL(16);
@@ -18,11 +18,11 @@ extern "C" {
 }
 
 #define SQ(x) ((x) * (x))
-#define RR(row, col) R[(row) * rowstride + (col)]
-#define UU(row, col) U[(row) * rowstride + (col)]
+#define RR(row, col) R[(row) * N + (col)]
+#define UU(row, col) U[(row) * N + (col)]
 
 template<const int N>
-void lll_reduce(FT R[N * N], ZZ U[N * N], int rowstride, FT delta) {
+void lll_reduce(FT R[N * N], ZZ U[N * N], FT delta) {
 	// Initialize the identity matrix
 	std::fill_n(U, N * N, 0);
 	for (int i = 0; i < N; i++) {
@@ -73,7 +73,7 @@ void lll_reduce(FT R[N * N], ZZ U[N * N], int rowstride, FT delta) {
 	}
 }
 
-#define FUNC(N) void lll_reduce_ ## N(FT *R, ZZ *U, int rowstride, FT delta) { lll_reduce<N>(R, U, rowstride, delta); }
+#define FUNC(N) void lll_reduce_ ## N(FT *R, ZZ *U, FT delta) { lll_reduce<N>(R, U, delta); }
 
 FUNC( 1) FUNC( 2) FUNC( 3) FUNC( 4) FUNC( 5) FUNC( 6) FUNC( 7) FUNC( 8)
 FUNC( 9) FUNC(10) FUNC(11) FUNC(12) FUNC(13) FUNC(14) FUNC(15) FUNC(16)

@@ -78,9 +78,9 @@ def __main__():
         print(f'Expected shortest vector: {expected_shortest:.3f} <(?) {int(q):d}')
     assert expected_shortest < q, 'q-ary vector could be part of an LLL reduced basis!'
 
-    with threadpool_limits(limits=args.cores):
+    with threadpool_limits(limits=1):
         # Perform Seysen-LLL reduction
-        U, prof = seysen_lll(B, args.delta)
+        U, prof = seysen_lll(B, args.delta, args.cores)
 
     # Print U
     if not args.quiet:

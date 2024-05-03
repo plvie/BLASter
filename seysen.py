@@ -3,8 +3,9 @@ LLL reduction with Seysen instead of size reduction.
 """
 
 from math import sqrt
+from multiprocessing import Pool, sharedctypes
 from time import perf_counter_ns
-from ctypes import CDLL, POINTER, c_double, c_longlong
+from ctypes import byref, CDLL, POINTER, c_double, c_longlong
 import numpy as np
 
 
@@ -134,27 +135,47 @@ def lagrange_reduce(R, delta=.99):
     return U, is_modified
 
 
-def seysen_lll(B, delta):
+_c_dll: CDLL
+_delta: float
+
+
+def lll_block(kwargs):
+    i, j, R = kwargs
+    U = np.zeros((j - i, j - i), dtype=c_longlong)
+    rp, up = R.ctypes.data_as(POINTER(c_double)), U.ctypes.data_as(POINTER(c_longlong))
+    CDLL('./lll.so')['lll_reduce_' + str(j - i)](rp, up, c_double(_delta))
+    return i, j, R, U
+
+
+def seysen_lll(B, delta, cores):
     """
     :param B: a basis, consisting of *column vectors*.
     :param delta: delta factor 
     :return: transformation matrix U such that BU is LLL reduced.
     """
+    global _delta, _c_dll
+    _delta = delta
+
     n = len(B)
     U, U1 = np.identity(n, dtype=np.int64), np.zeros((n, n), dtype=np.int64)
     prof = TimeProfile()
     is_modified = True
 
-    # Pre-LLL reduce
+    # Determine R factor.
     R = np.linalg.qr(B, mode='r')
-    block_size = 16
-    c_dll = CDLL('./lll.so')
+
+    # Fill data & jobs:
+    block_size, jobs, _c_dll = 8, [], CDLL('./lll.so')
     for i in range(0, n, block_size):
         j = min(i + block_size, n)
-        Rblock, Ublock = R[i:j, i:j], U[i:j, i:j]
-        c_dll['lll_reduce_' + str(j - i)](
-            Rblock.ctypes.data_as(POINTER(c_double)), Ublock.ctypes.data_as(POINTER(c_longlong)),
-            Rblock.ctypes.strides[0] // R.itemsize, c_double(delta))
+        jobs.append((i, j, R[i:j, i:j]))
+
+    # Call LLL concurrently on all blocks
+    with Pool(cores) as p:
+        for (i, j, r, u) in p.imap_unordered(lll_block, jobs):
+            R[i:j, i:j] = r
+            U[i:j, i:j] = u
+
     # Do not modify B, but keep Bred = B @ U up to date.
     Bred = B @ U
 
