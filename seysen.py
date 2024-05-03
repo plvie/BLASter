@@ -1,23 +1,31 @@
-from math import log, prod, sqrt
+"""
+LLL reduction with Seysen instead of size reduction.
+"""
+
+from math import sqrt
 from time import perf_counter_ns
 from ctypes import CDLL, POINTER, c_double, c_longlong
 import numpy as np
 
 
 class TimeProfile:
+    """
+    Object containing time spent on different parts within Seysen-LLL reduction.
+    """
+
     def __init__(self):
         self.num_iterations = 0
         self.time_qr = self.time_seysen = self.time_lagrange = self.time_matmul = 0
 
-    def Iteration(t1, t2, t3, t4, t5):
-        prof = TimeProfile() 
+    @classmethod
+    def iteration(cls, t1, t2, t3, t4, t5):
+        prof = cls()
         prof.num_iterations = 1
         prof.time_qr = t2 - t1
         prof.time_seysen = t3 - t2
         prof.time_lagrange = t4 - t3
         prof.time_matmul = t5 - t4
         return prof
-        
 
     def __iadd__(self, other):
         self.num_iterations += other.num_iterations
@@ -48,7 +56,7 @@ def block_cholesky(G, R):
     if len(G) == 1:
         R[0, 0] = np.array([[sqrt(G[0, 0])]])
     else:
-        n, m = len(G), len(G) // 2
+        m = len(G) // 2
         # Given G = B^T B, find upper-triangular R = [[R0, S], [0, R1]] such that R^T R = G.
         # Line 3: Recover R0.
         block_cholesky(G[:m, :m], R[:m, :m])
@@ -171,5 +179,5 @@ def seysen_lll(B, delta):
         Bred = Bred @ U12
         t5 = perf_counter_ns()
 
-        prof += TimeProfile.Iteration(t1, t2, t3, t4, t5)
+        prof += TimeProfile.iteration(t1, t2, t3, t4, t5)
     return U, prof

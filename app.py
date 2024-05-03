@@ -5,9 +5,8 @@ lattice with quality similar to what LLL achieves.
 """
 
 import argparse
-from math import exp, log, prod, sqrt
+from math import exp, log, prod
 from multiprocessing import cpu_count
-from time import perf_counter_ns
 
 import numpy as np
 from threadpoolctl import threadpool_limits
@@ -34,53 +33,7 @@ def rhf(profile):
     return prod((profile[0]/profile[i])**(1.0/n) for i in range(n))**(1.0 / n)
 
 
-def __main__(args):
-    B = read_matrix(args.input, args.verbose)
-    n = len(B)
-
-    # Assumption: B is a q-ary lattice.
-    q = B[-1][-1]
-
-    # Assume a RHF of ~1.02 
-    log_slope = log(1.02)  # -log(args.delta - 0.25) / 2
-    log_det = sum(log(x) for x in B.diagonal())
-    expected_shortest = exp(log_slope * (n-1) / 2 + log_det / n)
-    if args.verbose:
-        print(f'Expected shortest vector: {expected_shortest:.3f} <(?) {int(q):d}')
-    assert expected_shortest < q, 'q-ary vector could be part of an LLL reduced basis!'
-
-    # Perform Seysen-LLL reduction
-    U, prof = seysen_lll(B, args.delta)
-
-    # Print U
-    if not args.quiet:
-        print('U: \n', U, sep="")
-
-    # Print B @ U
-    print_mat = args.output is not None
-    if print_mat and args.input is not None and args.output == args.input:
-        print_mat = (input('WARNING: input & output files are same!\n Continue? (y/n)?') == 'y')
-    Bred = B @ U
-    if print_mat:
-        # Output the reduced basis.
-        write_matrix(args.output, Bred)
-    elif not args.quiet:
-        print('B: \n', Bred, sep="")
-
-    # Print time consumption
-    if args.verbose:
-        print(str(prof))
-
-    # Print profile
-    if args.profile:
-        prof = get_profile(Bred)
-        print('Profile: [', ' '.join(['{:.2f}'.format(x) for x in prof]),
-              ']', sep='')
-        print(f'Root hermite factor: {rhf(prof):.6f}')
-
-
-###############################################################################
-if __name__ == '__main__':
+def __main__():
     # Parse the command line arguments:
     parser = argparse.ArgumentParser(
             prog='SeysenLLL',
@@ -111,6 +64,51 @@ if __name__ == '__main__':
     args = parser.parse_args()
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value given for delta!'
 
-    np.set_printoptions(linewidth=200, threshold=2147483647, suppress=True)
+    B = read_matrix(args.input, args.verbose)
+    n = len(B)
+
+    # Assumption: B is a q-ary lattice.
+    q = B[-1][-1]
+
+    # Assume a RHF of ~1.02
+    log_slope = log(1.02)  # -log(args.delta - 0.25) / 2
+    log_det = sum(log(x) for x in B.diagonal())
+    expected_shortest = exp(log_slope * (n-1) / 2 + log_det / n)
+    if args.verbose:
+        print(f'Expected shortest vector: {expected_shortest:.3f} <(?) {int(q):d}')
+    assert expected_shortest < q, 'q-ary vector could be part of an LLL reduced basis!'
+
     with threadpool_limits(limits=args.cores):
-        __main__(args)
+        # Perform Seysen-LLL reduction
+        U, prof = seysen_lll(B, args.delta)
+
+    # Print U
+    if not args.quiet:
+        print('U: \n', U, sep="")
+
+    # Print B @ U
+    print_mat = args.output is not None
+    if print_mat and args.input is not None and args.output == args.input:
+        print_mat = input('WARNING: input & output files are same!\n Continue? (y/n)?') == 'y'
+    Bred = B @ U
+    if print_mat:
+        # Output the reduced basis.
+        write_matrix(args.output, Bred)
+    elif not args.quiet:
+        print('B: \n', Bred, sep="")
+
+    # Print time consumption
+    if args.verbose:
+        print(str(prof))
+
+    # Print profile
+    if args.profile:
+        prof = get_profile(Bred)
+        print('Profile: [', ' '.join([f'{x:.2f}' for x in prof]), ']', sep='')
+        print(f'Root hermite factor: {rhf(prof):.6f}')
+
+
+###############################################################################
+if __name__ == '__main__':
+    np.set_printoptions(linewidth=200, threshold=2147483647, suppress=True)
+    __main__()

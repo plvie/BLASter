@@ -42,5 +42,5 @@ def write_matrix(output_file, basis):
     basis = basis.transpose()
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('[')
-        for i in range(len(basis)):
-            f.write('[' + ' '.join(map(str, basis[i])) + (']\n' if i < len(basis) - 1 else ']]\n'))
+        for (i, v) in enumerate(basis):
+            f.write('[' + ' '.join(map(str, v)) + (']\n' if i < len(basis) - 1 else ']]\n'))
