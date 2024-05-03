@@ -5,7 +5,7 @@ lattice with quality similar to what LLL achieves.
 """
 
 import argparse
-from math import log, prod, sqrt
+from math import exp, log, prod, sqrt
 from multiprocessing import cpu_count
 from time import perf_counter_ns
 
@@ -14,7 +14,6 @@ from threadpoolctl import threadpool_limits
 
 from lattice_io import read_matrix, write_matrix
 from seysen import seysen_lll
-
 
 
 def get_profile(B):
@@ -42,31 +41,37 @@ def __main__(args):
     # Assumption: B is a q-ary lattice.
     q = B[-1][-1]
 
-    # log_slope = -log(args.delta - 0.25) / 2
-    log_slope = log(1.02)  # Assume a RHF of 1.02
+    # Assume a RHF of ~1.02 
+    log_slope = log(1.02)  # -log(args.delta - 0.25) / 2
     log_det = sum(log(x) for x in B.diagonal())
-    lhs, rhs = n * log(q), log_slope * n * (n-1) / 2 + log_det
+    expected_shortest = exp(log_slope * (n-1) / 2 + log_det / n)
     if args.verbose:
-        print(f'q-ary vector: e^{{{lhs:.3f}}}, allowed: q > e^{{{rhs:.3f}}}')
-    assert lhs > rhs, 'q-ary vector could be part of an LLL reduced basis!'
+        print(f'Expected shortest vector: {expected_shortest:.3f} <(?) {int(q):d}')
+    assert expected_shortest < q, 'q-ary vector could be part of an LLL reduced basis!'
 
+    # Perform Seysen-LLL reduction
     U, prof = seysen_lll(B, args.delta)
-    Bred = B @ U
-    if args.verbose:
-        print(str(prof))
 
+    # Print U
     if not args.quiet:
         print('U: \n', U, sep="")
 
+    # Print B @ U
     print_mat = args.output is not None
     if print_mat and args.input is not None and args.output == args.input:
         print_mat = (input('WARNING: input & output files are same!\n Continue? (y/n)?') == 'y')
+    Bred = B @ U
     if print_mat:
         # Output the reduced basis.
         write_matrix(args.output, Bred)
     elif not args.quiet:
         print('B: \n', Bred, sep="")
 
+    # Print time consumption
+    if args.verbose:
+        print(str(prof))
+
+    # Print profile
     if args.profile:
         prof = get_profile(Bred)
         print('Profile: [', ' '.join(['{:.2f}'.format(x) for x in prof]),
@@ -106,6 +111,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value given for delta!'
 
-    np.set_printoptions(linewidth=275, threshold=2147483647, suppress=True)
+    np.set_printoptions(linewidth=200, threshold=2147483647, suppress=True)
     with threadpool_limits(limits=args.cores):
         __main__(args)

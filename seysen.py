@@ -1,5 +1,6 @@
 from math import log, prod, sqrt
 from time import perf_counter_ns
+from ctypes import CDLL, POINTER, c_double, c_longlong
 import numpy as np
 
 
@@ -37,7 +38,9 @@ class TimeProfile:
 # Turns out, this is slower than `R = np.linalg.qr(B, 'r')`.
 def block_cholesky(G, R):
     """
-    Return the Cholesky decomposition of G using a recursive strategy.
+    Return the Cholesky decomposition of G using a recursive strategy, based on [KEF21], but using
+    2 instead of 4 matrix multiplications.
+    [KEF21] Towards Faster Polynomial-Time Lattice Reduction
     :param G: gram matrix of some basis.
     :param R: result R will be upper triangular satisfying: `R^T R = G`.
     :return: None! Result is stored in R.
@@ -46,35 +49,13 @@ def block_cholesky(G, R):
         R[0, 0] = np.array([[sqrt(G[0, 0])]])
     else:
         n, m = len(G), len(G) // 2
-
-        ################################################################################
-        # Alternative, using fewer matrix multiplications:
-        ################################################################################
-        # Given B = [B0, B1], G = [[B0^T B0, B0^T B1], [B1^T B0, B1^T B1]].
-        # Goal: find R = [[R0, S], [0, R1]] such that R^T R = G.
+        # Given G = B^T B, find upper-triangular R = [[R0, S], [0, R1]] such that R^T R = G.
         # Line 3: Recover R0.
         block_cholesky(G[:m, :m], R[:m, :m])
         # Line 4: S satisfies: G01 = R0^T S --> (S = R0^{-T} G01)
         R[:m, m:] = np.linalg.inv(R[:m, :m]).transpose() @ G[:m, m:]
         # Line 5: Recover R1 = BlockCholesky(G11 - S^T S)
         block_cholesky(G[m:, m:] - R[:m, m:].transpose() @ R[:m, m:], R[m:, m:])
-        return
-
-        ################################################################################
-        # Algorithm 6 from [KEF21] Towards Faster Polynomial-Time Lattice Reduction:
-        ################################################################################
-        ## Line 3: R_A <- BlockCholesky(A)
-        # block_cholesky(G[:m, :m], R[:m, :m])
-        ## Line 4:  R_A' <- Invert(R_A)
-        # R0inv = np.linalg.inv(R[:m, :m])
-        ## Line 5: A' <- R_A'^T R_A'
-        ## However, there is an error here. It should be:
-        ##         A' <- R_A' R_A'^T
-        # Aprime = R0inv @ R0inv.transpose()
-        ## Line 6: R_S <- BlockCholesky(C - B^T A' B)
-        # block_cholesky(G[m:, m:] - G[m:, :m] @ Aprime @ G[:m, m:], R[m:, m:])
-        ## Line 7: Return [[R_A, R_A'^T B], [0, R_S]]
-        # R[:m, m:] = R0inv.transpose() @ G[:m, m:]
 
 
 def seysen_reduce(R, U):
@@ -115,7 +96,7 @@ def lagrange_reduce(R, delta=.99):
     """
     Tries to perform lagrange reduction, on all the even or odd indices.
     :param R: upper-triangular matrix
-    :param nthreads: number of threads that we can use.
+    :param delta: delta-factor used in the Lovasz condition
     :return: pair of:
         1) a transformation matrix U such that RU is Lagrange-reduced,
         2) a bool whether some reduction happened.
@@ -148,23 +129,42 @@ def lagrange_reduce(R, delta=.99):
 def seysen_lll(B, delta):
     """
     :param B: a basis, consisting of *column vectors*.
+    :param delta: delta factor 
     :return: transformation matrix U such that BU is LLL reduced.
     """
     n = len(B)
-    U, U1, Bred = np.identity(n, dtype=np.float64), np.zeros((n, n), dtype=np.float64), np.copy(B)
+    U, U1 = np.identity(n, dtype=np.int64), np.zeros((n, n), dtype=np.int64)
     prof = TimeProfile()
     is_modified = True
+
+    # Pre-LLL reduce
+    R = np.linalg.qr(B, mode='r')
+    block_size = 16
+    c_dll = CDLL('./lll.so')
+    for i in range(0, n, block_size):
+        j = min(i + block_size, n)
+        Rblock, Ublock = R[i:j, i:j], U[i:j, i:j]
+        c_dll['lll_reduce_' + str(j - i)](
+            Rblock.ctypes.data_as(POINTER(c_double)), Ublock.ctypes.data_as(POINTER(c_longlong)),
+            Rblock.ctypes.strides[0] // R.itemsize, c_double(delta))
+    # Do not modify B, but keep Bred = B @ U up to date.
+    Bred = B @ U
+
     while is_modified:
         t1 = perf_counter_ns()
+
         # Step 1: QR-decompose Bred, and only store the upper-triangular matrix R.
         R = np.linalg.qr(Bred, mode='r')  # block_cholesky(Bp.transpose() @ Bp, R)
         t2 = perf_counter_ns()
+
         # Step 2: Seysen reduce the upper-triangular matrix R.
         seysen_reduce(R, U1)
         t3 = perf_counter_ns()
+
         # Step 3: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
         U2, is_modified = lagrange_reduce(R @ U1, delta)
         t4 = perf_counter_ns()
+
         # Step 4: Update matrices with the transformation matrices from Step 3 & 4.
         U12 = U1 @ U2
         U = U @ U12
