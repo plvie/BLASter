@@ -9,6 +9,14 @@ from ctypes import byref, CDLL, POINTER, c_double, c_longlong
 import numpy as np
 
 
+# Global toggle whether to use Block_cholesky from [KEF21].
+# If set to False, we will use the function 'linalg.qr' from numpy.
+USE_BLOCK_CHOLESKY = False
+
+# Global toggle whether to make a call to a LLL routine, written in C, or not.
+CALL_LLL = True
+
+
 class TimeProfile:
     """
     Object containing time spent on different parts within Seysen-LLL reduction.
@@ -67,6 +75,17 @@ def block_cholesky(G, R):
         block_cholesky(G[m:, m:] - R[:m, m:].transpose() @ R[:m, m:], R[m:, m:])
 
 
+def qr_decompose(B):
+    if USE_BLOCK_CHOLESKY:
+        # print("Decomposing ", B, sep="\n")
+        R = np.identity(len(B), dtype=np.float64)
+        block_cholesky(B.transpose() @ B, R)
+        # print("Result ", R, sep="\n")
+        return R
+    else:
+        return np.linalg.qr(B, mode='r')
+
+
 def seysen_reduce(R, U):
     """
     Seysen reduce a matrix R, recursive style, and store the result in U.
@@ -78,6 +97,7 @@ def seysen_reduce(R, U):
     :return: None! The result is stored in U.
     """
     n, m = len(R), len(R) // 2
+    # TODO: Write an iterative version that beats the recursive version.
 
     if n == 1:
         # Base case
@@ -112,19 +132,18 @@ def lagrange_reduce(R, delta=.99):
     """
     n = len(R)
     U = np.identity(n, dtype=np.float64)
-    is_modified, skip = False, False
+    last_change = -2
 
     for pos in range(0, n - 1):
-        if skip:
+        if last_change == pos - 1:
             # The disjoint lagrange reductions yield independent transformation matrices.
-            skip = False
             continue
 
         b0x = R[pos, pos]  # vector b0
         b1x, b1y = R[pos, pos + 1], R[pos + 1, pos + 1]  # vector b1
 
         if b1x * b1x + b1y * b1y < delta * (b0x * b0x):
-            is_modified = skip = True
+            last_change = pos
 
             # Reduce by making a swap and size-reducing b0 w.r.t. b1.
             q = round((b0x * b1x) / (b1x * b1x + b1y * b1y))
@@ -132,7 +151,7 @@ def lagrange_reduce(R, delta=.99):
             U[pos, pos] = 0
             U[pos + 1, pos] = U[pos, pos + 1] = 1
             U[pos + 1, pos + 1] = -q
-    return U, is_modified
+    return U, (last_change >= 0)
 
 
 _c_dll: CDLL
@@ -144,7 +163,14 @@ def lll_block(kwargs):
     U = np.zeros((j - i, j - i), dtype=c_longlong)
     rp, up = R.ctypes.data_as(POINTER(c_double)), U.ctypes.data_as(POINTER(c_longlong))
     CDLL('./lll.so')['lll_reduce_' + str(j - i)](rp, up, c_double(_delta))
-    return i, j, R, U
+    return i, j, U
+
+
+def is_QR_of(B, R):
+    Rp = qr_decompose(B)
+    if not (abs(Rp - R) <= 0.1).all():
+        print("Difference matrix:", Rp - R, "Gram matrix R:", R.transpose() @ R, "Gram matrix R':", Rp.transpose() @ Rp, sep="\n")
+    return (abs(Rp - R) <= 0.1).all()
 
 
 def seysen_lll(B, delta, cores):
@@ -156,49 +182,63 @@ def seysen_lll(B, delta, cores):
     global _delta, _c_dll
     _delta = delta
 
-    n = len(B)
-    U, U1 = np.identity(n, dtype=np.int64), np.zeros((n, n), dtype=np.int64)
-    prof = TimeProfile()
-    is_modified = True
+    n, is_modified, prof = len(B), True, TimeProfile()
+    U, Bred = np.identity(n, dtype=np.int64), B.copy()
 
-    # Determine R factor.
-    R = np.linalg.qr(B, mode='r')
+    U1, U2 = np.identity(n, dtype=np.int64), np.identity(n, dtype=np.int64)
+    U_seysen, U_cur = np.identity(n, dtype=np.float64), None
 
-    # Fill data & jobs:
-    block_size, jobs, _c_dll = 8, [], CDLL('./lll.so')
-    for i in range(0, n, block_size):
-        j = min(i + block_size, n)
-        jobs.append((i, j, R[i:j, i:j]))
+    # Create the jobs:
+    block_size = min(20, n // 2)
+    _c_dll = CDLL('./lll.so')
+    even_blocks = [(i, min(i + block_size, n)) for i in range(0, n, block_size)]
+    odd_blocks = [(i, min(i + block_size, n)) for i in range(block_size // 2, n, block_size)]
 
-    # Call LLL concurrently on all blocks
     with Pool(cores) as p:
-        for (i, j, r, u) in p.imap_unordered(lll_block, jobs):
-            R[i:j, i:j] = r
-            U[i:j, i:j] = u
+        while is_modified:
+            t1 = perf_counter_ns()
 
-    # Do not modify B, but keep Bred = B @ U up to date.
-    Bred = B @ U
+            # Step 1: QR-decompose Bred, and only store the upper-triangular matrix R.
+            R = qr_decompose(Bred)
 
-    while is_modified:
-        t1 = perf_counter_ns()
+            if CALL_LLL:
+                # Call LLL concurrently on all blocks
+                # Note: we do not have to reset the transformation U_cur, since it is always contained within the same blocks.
+                if prof.num_iterations % 2 == 0:
+                    U_cur = U1
+                    jobs = [(i, j, R[i:j, i:j]) for i, j in even_blocks]
+                else:
+                    U_cur = U2
+                    jobs = [(i, j, R[i:j, i:j]) for i, j in odd_blocks]
 
-        # Step 1: QR-decompose Bred, and only store the upper-triangular matrix R.
-        R = np.linalg.qr(Bred, mode='r')  # block_cholesky(Bp.transpose() @ Bp, R)
-        t2 = perf_counter_ns()
+                for (i, j, u) in p.imap_unordered(lll_block, jobs):
+                    U_cur[i:j, i:j] = u
 
-        # Step 2: Seysen reduce the upper-triangular matrix R.
-        seysen_reduce(R, U1)
-        t3 = perf_counter_ns()
+                # LLL "destroys" the QR decomposition, so do it again.
+                U = U @ U_cur
+                Bred = Bred @ U_cur
+                R = qr_decompose(Bred)
 
-        # Step 3: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
-        U2, is_modified = lagrange_reduce(R @ U1, delta)
-        t4 = perf_counter_ns()
+            t2 = perf_counter_ns()
 
-        # Step 4: Update matrices with the transformation matrices from Step 3 & 4.
-        U12 = U1 @ U2
-        U = U @ U12
-        Bred = Bred @ U12
-        t5 = perf_counter_ns()
+            # Step 2: Seysen reduce the upper-triangular matrix R.
+            seysen_reduce(R, U_seysen)
+            # print("Iteration #", prof.num_iterations)
+            # assert is_QR_of(Bred @ U_seysen, R @ U_seysen)
 
-        prof += TimeProfile.iteration(t1, t2, t3, t4, t5)
+            t3 = perf_counter_ns()
+
+            # Step 3: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
+            U_lagrange, is_modified = lagrange_reduce(R @ U_seysen, delta)
+
+            t4 = perf_counter_ns()
+
+            # Step 4: Update matrices with the transformation matrices from Step 3 & 4.
+            U_update = U_seysen @ U_lagrange
+            U = U @ U_update
+            Bred = Bred @ U_update
+
+            t5 = perf_counter_ns()
+
+            prof += TimeProfile.iteration(t1, t2, t3, t4, t5)
     return U, prof

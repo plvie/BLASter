@@ -95,7 +95,7 @@ def __main__():
         # Output the reduced basis.
         write_matrix(args.output, Bred)
     elif not args.quiet:
-        print('B: \n', Bred, sep="")
+        print('\nB: \n', Bred, sep="")
 
     # Print time consumption
     if args.verbose:
