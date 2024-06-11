@@ -185,8 +185,7 @@ def seysen_lll(B, delta, cores):
     n, is_modified, prof = len(B), True, TimeProfile()
     U, Bred = np.identity(n, dtype=np.int64), B.copy()
 
-    U1, U2 = np.identity(n, dtype=np.int64), np.identity(n, dtype=np.int64)
-    U_seysen, U_cur = np.identity(n, dtype=np.float64), None
+    U_seysen, U_lll = np.identity(n, dtype=np.float64), None
 
     # Create the jobs:
     block_size = min(20, n // 2)
@@ -200,30 +199,21 @@ def seysen_lll(B, delta, cores):
 
             # Step 1: QR-decompose Bred, and only store the upper-triangular matrix R.
             R = qr_decompose(Bred)
+            U_lll = np.identity(n, dtype=np.int64)
 
             if CALL_LLL:
                 # Call LLL concurrently on all blocks
-                # Note: we do not have to reset the transformation U_cur, since it is always contained within the same blocks.
-                if prof.num_iterations % 2 == 0:
-                    U_cur = U1
-                    jobs = [(i, j, R[i:j, i:j]) for i, j in even_blocks]
-                else:
-                    U_cur = U2
-                    jobs = [(i, j, R[i:j, i:j]) for i, j in odd_blocks]
-
+                blocks = [even_blocks, odd_blocks][prof.num_iterations % 2]
+                jobs = [(i, j, R[i:j, i:j]) for i, j in blocks]
                 for (i, j, u) in p.imap_unordered(lll_block, jobs):
-                    U_cur[i:j, i:j] = u
-
+                    U_lll[i:j, i:j] = u
                 # LLL "destroys" the QR decomposition, so do it again.
-                U = U @ U_cur
-                Bred = Bred @ U_cur
-                R = qr_decompose(Bred)
+                R = qr_decompose(Bred @ U_lll)
 
             t2 = perf_counter_ns()
 
             # Step 2: Seysen reduce the upper-triangular matrix R.
             seysen_reduce(R, U_seysen)
-            # print("Iteration #", prof.num_iterations)
             # assert is_QR_of(Bred @ U_seysen, R @ U_seysen)
 
             t3 = perf_counter_ns()
@@ -234,7 +224,7 @@ def seysen_lll(B, delta, cores):
             t4 = perf_counter_ns()
 
             # Step 4: Update matrices with the transformation matrices from Step 3 & 4.
-            U_update = U_seysen @ U_lagrange
+            U_update = U_lll @ U_seysen @ U_lagrange
             U = U @ U_update
             Bred = Bred @ U_update
 
