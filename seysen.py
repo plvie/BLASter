@@ -221,20 +221,14 @@ def seysen_lll(B, args):
             R = qr_decompose(B @ U)
 
             if block_size > 1:
-                U_lll = np.identity(n, dtype=np.int64)
                 # Call LLL concurrently on all blocks
                 blocks = [even_blocks, odd_blocks][prof.num_iterations % 2]
                 jobs = [(i, j, R[i:j, i:j]) for i, j in blocks]
                 for (i, j, u) in p.imap_unordered(lll_block, jobs):
-                    U_lll[i:j, i:j] = u
+                    U[:n, i:j] = U[:n, i:j] @ u
+
                 # LLL "destroys" the QR decomposition, so do it again.
-
-                # B_red = B_red @ U_lll
-                U = U @ U_lll
-                # R = qr_decompose(B_red)
                 R = qr_decompose(B @ U)
-
-                # R = qr_decompose(B_red @ U_lll)
                 # print("U(LLL):", U_lll, "\nR(LLL):", R, "\nB(LLL):", B_red @ U_lll, sep="\n")
 
             t2 = perf_counter_ns()
