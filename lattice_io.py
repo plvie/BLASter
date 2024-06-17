@@ -33,7 +33,7 @@ def read_matrix(input_file, verbose=False):
         data[i] = list(map(int, data[i][1:-1].split(' ')))
 
     # Use column vectors.
-    return np.array(data, dtype=np.float64).transpose()
+    return np.array(data, dtype=np.int64).transpose()
 
 
 def write_matrix(output_file, basis):

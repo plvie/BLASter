@@ -7,5 +7,6 @@ __pycache__
 # Swap files
 *.swp
 
-# Lattices
-*.lat
+# Input/output lattice bases
+/input/
+/output/

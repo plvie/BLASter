@@ -3,18 +3,16 @@ LLL reduction with Seysen instead of size reduction.
 """
 
 from math import sqrt
-from multiprocessing import Pool, sharedctypes
+from multiprocessing import Pool
+from sys import stdout
 from time import perf_counter_ns
-from ctypes import byref, CDLL, POINTER, c_double, c_longlong
+from ctypes import CDLL, POINTER, c_double, c_longlong
 import numpy as np
 
 
 # Global toggle whether to use Block_cholesky from [KEF21].
 # If set to False, we will use the function 'linalg.qr' from numpy.
 USE_BLOCK_CHOLESKY = False
-
-# Global toggle whether to make a call to a LLL routine, written in C, or not.
-CALL_LLL = True
 
 
 class TimeProfile:
@@ -72,15 +70,16 @@ def block_cholesky(G, R):
         # Line 4: S satisfies: G01 = R0^T S --> (S = R0^{-T} G01)
         R[:m, m:] = np.linalg.inv(R[:m, :m]).transpose() @ G[:m, m:]
         # Line 5: Recover R1 = BlockCholesky(G11 - S^T S)
+
+        schur = G[m:, m:] - R[:m, m:].transpose() @ R[:m, m:]
         block_cholesky(G[m:, m:] - R[:m, m:].transpose() @ R[:m, m:], R[m:, m:])
 
 
 def qr_decompose(B):
     if USE_BLOCK_CHOLESKY:
-        # print("Decomposing ", B, sep="\n")
         R = np.identity(len(B), dtype=np.float64)
-        block_cholesky(B.transpose() @ B, R)
-        # print("Result ", R, sep="\n")
+        Bf = B.astype(np.float64)
+        block_cholesky(Bf.transpose() @ Bf, R)
         return R
     else:
         return np.linalg.qr(B, mode='r')
@@ -166,69 +165,106 @@ def lll_block(kwargs):
     return i, j, U
 
 
-def is_QR_of(B, R):
+def matrices_are_equal(A, B, epsilon=1e-6):
+    """
+    Return whether A and B are approximately equal, i.e.:
+
+        ||A-B||_{infty} <= epsilon.
+    """
+    result = (abs(A - B) <= epsilon).all()
+    if not result:
+        print('Matrix A:', A, 'Matrix B:', B, sep='\n')
+    return result
+
+
+def is_qr_of(B, R):
     Rp = qr_decompose(B)
-    if not (abs(Rp - R) <= 0.1).all():
+    are_eq = matrices_are_equal(Rp, R, 0.1)
+    if not are_eq:
         print("Difference matrix:", Rp - R, "Gram matrix R:", R.transpose() @ R, "Gram matrix R':", Rp.transpose() @ Rp, sep="\n")
-    return (abs(Rp - R) <= 0.1).all()
+    return are_eq
 
 
-def seysen_lll(B, delta, cores):
+def seysen_lll(B, args):
     """
     :param B: a basis, consisting of *column vectors*.
-    :param delta: delta factor 
+    :param delta: delta factor
     :return: transformation matrix U such that BU is LLL reduced.
     """
     global _delta, _c_dll
-    _delta = delta
+
+    delta, cores, lll_size = args.delta, args.cores, args.LLL
 
     n, is_modified, prof = len(B), True, TimeProfile()
-    U, Bred = np.identity(n, dtype=np.int64), B.copy()
-
-    U_seysen, U_lll = np.identity(n, dtype=np.float64), None
+    U = np.identity(n, dtype=np.int64)
+    U_seysen = np.identity(n, dtype=np.float64)
+    # B_red = B.copy()
 
     # Create the jobs:
-    block_size = min(20, n // 2)
-    _c_dll = CDLL('./lll.so')
-    even_blocks = [(i, min(i + block_size, n)) for i in range(0, n, block_size)]
-    odd_blocks = [(i, min(i + block_size, n)) for i in range(block_size // 2, n, block_size)]
+
+    # 1) The C function supports block sizes up to 64.
+    # 2) When a block size > n/2 is used, only 1 block is used, which is slow.
+    block_size = min(lll_size, 64, n // 2)
+
+    if block_size > 1:
+        _c_dll = CDLL('./lll.so')
+        _delta = delta
+        even_blocks = [(i, min(i + block_size, n)) for i in range(0, n, block_size)]
+        odd_blocks = [(i, min(i + block_size, n)) for i in range(block_size // 2, n, block_size)]
 
     with Pool(cores) as p:
         while is_modified:
             t1 = perf_counter_ns()
 
-            # Step 1: QR-decompose Bred, and only store the upper-triangular matrix R.
-            R = qr_decompose(Bred)
-            U_lll = np.identity(n, dtype=np.int64)
+            # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
+            # R = qr_decompose(B_red)
+            R = qr_decompose(B @ U)
 
-            if CALL_LLL:
+            if block_size > 1:
+                U_lll = np.identity(n, dtype=np.int64)
                 # Call LLL concurrently on all blocks
                 blocks = [even_blocks, odd_blocks][prof.num_iterations % 2]
                 jobs = [(i, j, R[i:j, i:j]) for i, j in blocks]
                 for (i, j, u) in p.imap_unordered(lll_block, jobs):
                     U_lll[i:j, i:j] = u
                 # LLL "destroys" the QR decomposition, so do it again.
-                R = qr_decompose(Bred @ U_lll)
+
+                # B_red = B_red @ U_lll
+                U = U @ U_lll
+                # R = qr_decompose(B_red)
+                R = qr_decompose(B @ U)
+
+                # R = qr_decompose(B_red @ U_lll)
+                # print("U(LLL):", U_lll, "\nR(LLL):", R, "\nB(LLL):", B_red @ U_lll, sep="\n")
 
             t2 = perf_counter_ns()
 
             # Step 2: Seysen reduce the upper-triangular matrix R.
             seysen_reduce(R, U_seysen)
-            # assert is_QR_of(Bred @ U_seysen, R @ U_seysen)
+            # print("\nU(seysen):", U_seysen, "\nR(seysen):", R @ U_seysen, "\nB(seysen):", B_red @ U_lll @ U_seysen, sep="\n")
+            # assert is_qr_of(B_red @ U_seysen, R @ U_seysen)
 
             t3 = perf_counter_ns()
 
             # Step 3: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
             U_lagrange, is_modified = lagrange_reduce(R @ U_seysen, delta)
 
+            # print("\nU(lagrange):", U_lagrange, "\nR(lagrange):", R @ U_seysen @ U_lagrange, "\nB(lagrange):", B_red @ U_lll @ U_seysen @ U_lagrange, sep="\n")
+            # exit(1)
+
             t4 = perf_counter_ns()
 
             # Step 4: Update matrices with the transformation matrices from Step 3 & 4.
-            U_update = U_lll @ U_seysen @ U_lagrange
+            with np.errstate(all='raise'):
+                U_update = (U_seysen @ U_lagrange).astype(np.int64)
             U = U @ U_update
-            Bred = Bred @ U_update
+            # B_red = B_red @ U_update
 
             t5 = perf_counter_ns()
 
             prof += TimeProfile.iteration(t1, t2, t3, t4, t5)
-    return U, prof
+            print('.', end='')
+            stdout.flush()
+            # assert matrices_are_equal(B_red, B @ U)
+    # return U, B_red, prof
+    return U, B @ U, prof

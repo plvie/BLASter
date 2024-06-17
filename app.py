@@ -40,6 +40,7 @@ def __main__():
             description='LLL-reduce a lattice using seysen reduction',
             epilog='Input/output is formatted as is done in fpLLL')
 
+    # Global settings
     parser.add_argument(
             '--verbose', '-v', action='store_true', help='Verbose output')
     parser.add_argument(
@@ -48,12 +49,8 @@ def __main__():
     parser.add_argument(
             '--quiet', '-q', action='store_true',
             help='Quiet mode will not output the output basis')
-    parser.add_argument(
-            '--profile', '-p', action='store_true',
-            help='Give information on the profile of the output basis')
-    parser.add_argument(
-            '--delta', type=float, default=0.99,
-            help='delta factor for Lovasz condition')
+
+    # I/O arguments
     parser.add_argument(
             '--input', '-i', type=str,
             help='Input file (default=stdin)')
@@ -61,8 +58,28 @@ def __main__():
             '--output', '-o', type=str,
             help='Output file (default=stdout)')
 
+    # Output profile?
+    parser.add_argument(
+            '--profile', '-p', action='store_true',
+            help='Give information on the profile of the output basis')
+
+    # Lovasz condition
+    parser.add_argument(
+            '--delta', type=float, default=0.99,
+            help='delta factor for Lovasz condition')
+
+    # LLL block size
+    parser.add_argument(
+            '--LLL', type=int, default=1,
+            help='Size of blocks on which to call LLL locally')
+
     args = parser.parse_args()
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value given for delta!'
+
+    if args.LLL == 1 and args.verbose:
+        print('Note: LLL block size is 1. '
+              'Tip: Add `--LLL <blocksize>` to run LLL locally, '
+              ' which usually provides a speed up.')
 
     B = read_matrix(args.input, args.verbose)
     n = len(B)
@@ -80,11 +97,12 @@ def __main__():
 
     with threadpool_limits(limits=1):
         # Perform Seysen-LLL reduction
-        U, prof = seysen_lll(B, args.delta, args.cores)
+        U, B_red, prof = seysen_lll(B, args)
 
     # Print U
     if not args.quiet:
-        print('U: \n', U, sep="")
+        print('\nU:\n', U.astype(np.int64), sep="")
+        print('\nB_red:\n', B_red.astype(np.int64), sep="")
 
     # Print B @ U
     print_mat = args.output is not None
@@ -95,20 +113,20 @@ def __main__():
         # Output the reduced basis.
         write_matrix(args.output, Bred)
     elif not args.quiet:
-        print('\nB: \n', Bred, sep="")
+        print('\nB:\n', Bred.astype(np.int64), sep="")
 
     # Print time consumption
     if args.verbose:
-        print(str(prof))
+        print('\n', str(prof), sep="")
 
     # Print profile
     if args.profile:
         prof = get_profile(Bred)
-        print('Profile: [', ' '.join([f'{x:.2f}' for x in prof]), ']', sep='')
+        print('\nProfile: [', ' '.join([f'{x:.2f}' for x in prof]), ']', sep='')
         print(f'Root hermite factor: {rhf(prof):.6f}')
 
 
 ###############################################################################
 if __name__ == '__main__':
-    np.set_printoptions(linewidth=200, threshold=2147483647, suppress=True)
+    np.set_printoptions(linewidth=1000000, threshold=2147483647, suppress=True)
     __main__()
