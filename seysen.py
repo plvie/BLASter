@@ -4,7 +4,7 @@ LLL reduction with Seysen instead of size reduction.
 
 from math import sqrt
 from multiprocessing import Pool
-from sys import stdout
+from sys import stdout, stderr
 from time import perf_counter_ns
 from ctypes import CDLL, POINTER, c_double, c_longlong
 import numpy as np
@@ -22,31 +22,31 @@ class TimeProfile:
 
     def __init__(self):
         self.num_iterations = 0
-        self.time_qr = self.time_seysen = self.time_lagrange = self.time_matmul = 0
+        self.time_qr = self.time_lll = self.time_seysen = self.time_matmul = 0
 
     @classmethod
     def iteration(cls, t1, t2, t3, t4, t5):
         prof = cls()
         prof.num_iterations = 1
         prof.time_qr = t2 - t1
-        prof.time_seysen = t3 - t2
-        prof.time_lagrange = t4 - t3
+        prof.time_lll = t3 - t2
+        prof.time_seysen = t4 - t3
         prof.time_matmul = t5 - t4
         return prof
 
     def __iadd__(self, other):
         self.num_iterations += other.num_iterations
         self.time_qr += other.time_qr
+        self.time_lll += other.time_lll
         self.time_seysen += other.time_seysen
-        self.time_lagrange += other.time_lagrange
         self.time_matmul += other.time_matmul
         return self
 
     def __str__(self):
         return (f"Iterations: {self.num_iterations}\n"
                 f"Time QR factorization: {self.time_qr:18,d} ns\n"
+                f"Time LLL    reduction: {self.time_lll:18,d} ns\n"
                 f"Time Seysen reduction: {self.time_seysen:18,d} ns\n"
-                f"Time Lagrange reduct.: {self.time_lagrange:18,d} ns\n"
                 f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
 
 
@@ -153,18 +153,6 @@ def lagrange_reduce(R, delta=.99):
     return U, (last_change >= 0)
 
 
-_c_dll: CDLL
-_delta: float
-
-
-def lll_block(kwargs):
-    i, j, R = kwargs
-    U = np.zeros((j - i, j - i), dtype=c_longlong)
-    rp, up = R.ctypes.data_as(POINTER(c_double)), U.ctypes.data_as(POINTER(c_longlong))
-    CDLL('./lll.so')['lll_reduce_' + str(j - i)](rp, up, c_double(_delta))
-    return i, j, U
-
-
 def matrices_are_equal(A, B, epsilon=1e-6):
     """
     Return whether A and B are approximately equal, i.e.:
@@ -185,6 +173,18 @@ def is_qr_of(B, R):
     return are_eq
 
 
+_c_dll: CDLL
+_delta: float
+
+
+def lll_block(kwargs):
+    i, j, R = kwargs
+    U = np.zeros((j - i, j - i), dtype=c_longlong)
+    rp, up = R.ctypes.data_as(POINTER(c_double)), U.ctypes.data_as(POINTER(c_longlong))
+    CDLL('./lll.so')['lll_reduce_' + str(j - i)](rp, up, c_double(_delta))
+    return i, j, U
+
+
 def seysen_lll(B, args):
     """
     :param B: a basis, consisting of *column vectors*.
@@ -198,7 +198,6 @@ def seysen_lll(B, args):
     n, is_modified, prof = len(B), True, TimeProfile()
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.float64)
-    # B_red = B.copy()
 
     # Create the jobs:
 
@@ -217,11 +216,12 @@ def seysen_lll(B, args):
             t1 = perf_counter_ns()
 
             # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
-            # R = qr_decompose(B_red)
             R = qr_decompose(B @ U)
 
+            t2 = perf_counter_ns()
+
             if block_size > 1:
-                # Call LLL concurrently on all blocks
+                # Step 2: Call LLL concurrently on small blocks.
                 blocks = [even_blocks, odd_blocks][prof.num_iterations % 2]
                 jobs = [(i, j, R[i:j, i:j]) for i, j in blocks]
                 for (i, j, u) in p.imap_unordered(lll_block, jobs):
@@ -229,36 +229,26 @@ def seysen_lll(B, args):
 
                 # LLL "destroys" the QR decomposition, so do it again.
                 R = qr_decompose(B @ U)
-                # print("U(LLL):", U_lll, "\nR(LLL):", R, "\nB(LLL):", B_red @ U_lll, sep="\n")
-
-            t2 = perf_counter_ns()
-
-            # Step 2: Seysen reduce the upper-triangular matrix R.
-            seysen_reduce(R, U_seysen)
-            # print("\nU(seysen):", U_seysen, "\nR(seysen):", R @ U_seysen, "\nB(seysen):", B_red @ U_lll @ U_seysen, sep="\n")
-            # assert is_qr_of(B_red @ U_seysen, R @ U_seysen)
 
             t3 = perf_counter_ns()
 
-            # Step 3: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
-            U_lagrange, is_modified = lagrange_reduce(R @ U_seysen, delta)
-
-            # print("\nU(lagrange):", U_lagrange, "\nR(lagrange):", R @ U_seysen @ U_lagrange, "\nB(lagrange):", B_red @ U_lll @ U_seysen @ U_lagrange, sep="\n")
-            # exit(1)
+            # Step 3: Seysen reduce the upper-triangular matrix R.
+            seysen_reduce(R, U_seysen)
 
             t4 = perf_counter_ns()
 
-            # Step 4: Update matrices with the transformation matrices from Step 3 & 4.
+            # Step 4: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
+            # Note: this step is negligible compared to the rest.
+            U_lagrange, is_modified = lagrange_reduce(R @ U_seysen, delta)
+
+            # Step 5: Update matrices with the transformation matrices from Step 3 & 4.
             with np.errstate(all='raise'):
                 U_update = (U_seysen @ U_lagrange).astype(np.int64)
-            U = U @ U_update
-            # B_red = B_red @ U_update
+                U = U @ U_update
 
             t5 = perf_counter_ns()
 
             prof += TimeProfile.iteration(t1, t2, t3, t4, t5)
-            print('.', end='')
-            stdout.flush()
-            # assert matrices_are_equal(B_red, B @ U)
-    # return U, B_red, prof
+            print('.', end='', file=stderr)
+            stderr.flush()
     return U, B @ U, prof
