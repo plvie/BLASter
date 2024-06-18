@@ -5,14 +5,25 @@ lattice with quality similar to what LLL achieves.
 """
 
 import argparse
-from math import exp, log, prod
+from math import exp, gamma, log, pi, prod
 from multiprocessing import cpu_count
+from sys import stderr
 
 import numpy as np
 from threadpoolctl import threadpool_limits
 
 from lattice_io import read_matrix, write_matrix
 from seysen import seysen_lll
+
+
+def gh(dim):
+    """
+    Return the Gaussian Heuristic at dimension n. This gives a prediction of
+    the length of the shortest vector in a lattice of unit volume.
+    :param n: lattice dimension
+    :returns: GH(n)
+    """
+    return float(gamma(1.0 + 0.5 * dim)**(1.0 / dim) / pi**0.5)
 
 
 def get_profile(B):
@@ -26,11 +37,13 @@ def get_profile(B):
 
 def rhf(profile):
     """
-    Return the root Hermite factor, given the profile of some basis.
+    Return the root Hermite factor, given the profile of some basis, i.e.
+        rhf(B) = (||b_0|| / det(B))^{1/(n-1)}.
     :param profile: profile belonging to some basis of some lattice
     """
     n = len(profile)
-    return prod((profile[0]/profile[i])**(1.0/n) for i in range(n))**(1.0 / n)
+    log_det = sum(log(p) for p in profile)
+    return exp((log(profile[0]) - log_det / n) / (n - 1))
 
 
 def __main__():
@@ -44,7 +57,7 @@ def __main__():
     parser.add_argument(
             '--verbose', '-v', action='store_true', help='Verbose output')
     parser.add_argument(
-            '--cores', type=int, default=cpu_count() // 2,
+            '--cores', '-j', type=int, default=cpu_count() // 2,
             help='number of cores to be used')
     parser.add_argument(
             '--quiet', '-q', action='store_true',
@@ -79,7 +92,7 @@ def __main__():
     if args.LLL == 1 and args.verbose:
         print('Note: LLL block size is 1. '
               'Tip: Add `--LLL <blocksize>` to run LLL locally, '
-              ' which usually provides a speed up.')
+              'which usually provides a speed up.', file=stderr)
 
     B = read_matrix(args.input, args.verbose)
     n = len(B)
@@ -88,42 +101,41 @@ def __main__():
     q = B[-1][-1]
 
     # Assume a RHF of ~1.02
-    log_slope = log(1.02)  # -log(args.delta - 0.25) / 2
+    log_slope = log(1.02)  # -log(args.delta - 0.25)
     log_det = sum(log(x) for x in B.diagonal())
-    expected_shortest = exp(log_slope * (n-1) / 2 + log_det / n)
+    expected_shortest = exp(log_slope * (n-1) + log_det / n)
     if args.verbose:
-        print(f'Expected shortest vector: {expected_shortest:.3f} <(?) {int(q):d}')
+        print(f'Note: Gaussian Heuristic predicts vector of norm {gh(n) * exp(log_det/n):.3f}\n'
+              f'Expected shortest vector: {expected_shortest:.3f} <(?) {int(q):d}',
+              file=stderr)
     assert expected_shortest < q, 'q-ary vector could be part of an LLL reduced basis!'
 
     with threadpool_limits(limits=1):
-        # Perform Seysen-LLL reduction
+        # Perform Seysen-LLL reduction on basis B
         U, B_red, prof = seysen_lll(B, args)
 
-    # Print U
+    # Print U and B_red to stdout
     if not args.quiet:
-        print('\nU:\n', U.astype(np.int64), sep="")
-        print('\nB_red:\n', B_red.astype(np.int64), sep="")
+        print('\nU:', U.astype(np.int64), 'B_red:', B_red.astype(np.int64), sep='\n')
 
-    # Print B @ U
+    # Write B_red to the output file
     print_mat = args.output is not None
     if print_mat and args.input is not None and args.output == args.input:
         print_mat = input('WARNING: input & output files are same!\n Continue? (y/n)?') == 'y'
-    Bred = B @ U
     if print_mat:
-        # Output the reduced basis.
-        write_matrix(args.output, Bred)
+        write_matrix(args.output, B_red)
     elif not args.quiet:
-        print('\nB:\n', Bred.astype(np.int64), sep="")
+        print('\nB:\n', B_red.astype(np.int64), sep="")
 
     # Print time consumption
     if args.verbose:
-        print('\n', str(prof), sep="")
+        print('\n', str(prof), sep="", file=stderr)
 
     # Print profile
     if args.profile:
-        prof = get_profile(Bred)
-        print('\nProfile: [', ' '.join([f'{x:.2f}' for x in prof]), ']', sep='')
-        print(f'Root hermite factor: {rhf(prof):.6f}')
+        prof = get_profile(B_red)
+        print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n',
+              f'Root hermite factor: {rhf(prof):.6f}', file=stderr)
 
 
 ###############################################################################
