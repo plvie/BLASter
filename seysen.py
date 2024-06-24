@@ -4,15 +4,20 @@ LLL reduction with Seysen instead of size reduction.
 
 from math import sqrt
 from multiprocessing import Pool
-from sys import stdout, stderr
+from sys import stderr
 from time import perf_counter_ns
 from ctypes import CDLL, POINTER, c_double, c_longlong
 import numpy as np
 
+has_eigen = True
+try:
+    from eigenpy import LLT
+except ModuleNotFoundError:
+    has_eigen = False
 
 # Global toggle whether to use Block_cholesky from [KEF21].
 # If set to False, we will use the function 'linalg.qr' from numpy.
-USE_BLOCK_CHOLESKY = False
+USE_BLOCK_CHOLESKY = True
 
 
 class TimeProfile:
@@ -64,7 +69,9 @@ def block_cholesky(G, R):
         R[0, 0] = np.array([[sqrt(G[0, 0])]])
     else:
         m = len(G) // 2
-        # Given G = B^T B, find upper-triangular R = [[R0, S], [0, R1]] such that R^T R = G.
+        # Given G = B^T B, find upper-triangular R = [[R0, S], [0, R1]],
+        # such that R^T R = G.
+
         # Line 3: Recover R0.
         block_cholesky(G[:m, :m], R[:m, :m])
         # Line 4: S satisfies: G01 = R0^T S --> (S = R0^{-T} G01)
@@ -72,17 +79,31 @@ def block_cholesky(G, R):
         # Line 5: Recover R1 = BlockCholesky(G11 - S^T S)
 
         schur = G[m:, m:] - R[:m, m:].transpose() @ R[:m, m:]
-        block_cholesky(G[m:, m:] - R[:m, m:].transpose() @ R[:m, m:], R[m:, m:])
+        block_cholesky(schur, R[m:, m:])
+
+
+def eigen_cholesky(G):
+    return LLT(G).matrixL().transpose()
 
 
 def qr_decompose(B):
     if USE_BLOCK_CHOLESKY:
-        R = np.identity(len(B), dtype=np.float64)
-        Bf = B.astype(np.float64)
-        block_cholesky(Bf.transpose() @ Bf, R)
-        return R
+        if has_eigen:
+            # return eigen_cholesky(Bf.transpose() @ Bf)
+            return eigen_cholesky(B.transpose() @ B)
+        else:
+            Bf = B.astype(np.float64)
+            R = np.identity(len(B), dtype=np.float64)
+            block_cholesky(Bf.transpose() @ Bf, R)
+            return R
     else:
-        return np.linalg.qr(B, mode='r')
+        R = np.linalg.qr(B, mode='r')
+        for i in range(len(B)):
+            if R[i, i] < 0:
+                # Negate this row.
+                R[i, i:] *= -1
+
+        return R
 
 
 def seysen_reduce(R, U):
@@ -225,7 +246,7 @@ def seysen_lll(B, args):
                 blocks = [even_blocks, odd_blocks][prof.num_iterations % 2]
                 jobs = [(i, j, R[i:j, i:j]) for i, j in blocks]
                 for (i, j, u) in p.imap_unordered(lll_block, jobs):
-                    U[:n, i:j] = U[:n, i:j] @ u
+                    U[:, i:j] = U[:, i:j] @ u
 
                 # LLL "destroys" the QR decomposition, so do it again.
                 R = qr_decompose(B @ U)
