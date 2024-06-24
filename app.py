@@ -28,11 +28,10 @@ def gh(dim):
 
 def get_profile(B):
     """
-    Returns the (exp-)profile of a basis, i.e. ||b_i*|| for i=1, ..., n.
-    Note: some people define the profileas log ||b_i*|| instead!
+    Returns the profile of a basis, i.e. log ||b_i*|| for i=1, ..., n.
     :param B: basis for a lattice
     """
-    return abs(np.linalg.qr(B, mode='r').diagonal())
+    return [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
 
 
 def rhf(profile):
@@ -42,8 +41,7 @@ def rhf(profile):
     :param profile: profile belonging to some basis of some lattice
     """
     n = len(profile)
-    log_det = sum(log(p) for p in profile)
-    return exp((log(profile[0]) - log_det / n) / (n - 1))
+    return exp((profile[0] - sum(profile) / n) / (n - 1))
 
 
 def __main__():
@@ -102,7 +100,7 @@ def __main__():
 
     # Assume a RHF of ~1.02
     log_slope = log(1.02)  # -log(args.delta - 0.25)
-    log_det = sum(log(x) for x in B.diagonal())
+    log_det = sum(get_profile(B))
     expected_shortest = exp(log_slope * (n-1) + log_det / n)
     if args.verbose:
         print(f'Note: Gaussian Heuristic predicts vector of norm {gh(n) * exp(log_det/n):.3f}\n'
