@@ -4,7 +4,7 @@ Read/write a matrix in FPLLL's latticegen format, into/from numpy array.
 import numpy as np
 
 
-def read_matrix(input_file, verbose=False):
+def read_matrix(input_file, verbose=False, reverse=True):
     """
     Read a matrix from a file, or from stdin.
     :param input_file: file name, or None (reads from stdin).
@@ -32,14 +32,21 @@ def read_matrix(input_file, verbose=False):
     for i in range(len(data)):
         data[i] = list(map(int, data[i][1:-1].split(' ')))
 
+    if reverse:
+        data.reverse()
+
     # Use column vectors.
     return np.array(data, dtype=np.int64).transpose()
 
 
-def write_matrix(output_file, basis):
+def write_matrix(output_file, basis, reverse=True):
     # Assume that the basis is given with column vectors as input.
     # However, output them as row vectors.
     basis = basis.transpose()
+
+    if reverse:
+        basis = reversed(basis)
+
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('[')
         for (i, v) in enumerate(basis):

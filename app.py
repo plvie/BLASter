@@ -98,7 +98,7 @@ def __main__():
     n = len(B)
 
     # Assumption: B is a q-ary lattice.
-    q = B[-1][-1]
+    q = B[-1, 0] if all(B[:-1, 0] == 0) else B[-1, -1]
 
     # Assume a RHF of ~1.02
     log_slope = log(1.02)  # -log(args.delta - 0.25)
