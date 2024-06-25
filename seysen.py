@@ -12,12 +12,13 @@ import numpy as np
 has_eigen = True
 try:
     from eigenpy import LLT
-except ModuleNotFoundError:
+except ImportError:
+    print('Library `Eigen3` is not found.')
     has_eigen = False
 
 # Global toggle whether to use Block_cholesky from [KEF21].
 # If set to False, we will use the function 'linalg.qr' from numpy.
-USE_BLOCK_CHOLESKY = True
+USE_BLOCK_CHOLESKY = False
 
 
 class TimeProfile:
@@ -226,7 +227,7 @@ def seysen_lll(B, args):
     # 2) When a block size > n/2 is used, only 1 block is used, which is slow.
     block_size = min(lll_size, 64, n // 2)
 
-    if block_size > 1:
+    if block_size > 2:
         _c_dll = CDLL('./lll.so')
         _delta = delta
         even_blocks = [(i, min(i + block_size, n)) for i in range(0, n, block_size)]
@@ -241,7 +242,7 @@ def seysen_lll(B, args):
 
             t2 = perf_counter_ns()
 
-            if block_size > 1:
+            if block_size > 2:
                 # Step 2: Call LLL concurrently on small blocks.
                 blocks = [even_blocks, odd_blocks][prof.num_iterations % 2]
                 jobs = [(i, j, R[i:j, i:j]) for i, j in blocks]

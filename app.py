@@ -81,14 +81,14 @@ def __main__():
 
     # LLL block size
     parser.add_argument(
-            '--LLL', type=int, default=1,
+            '--LLL', '-l', type=int, default=1,
             help='Size of blocks on which to call LLL locally')
 
     args = parser.parse_args()
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value given for delta!'
 
     if args.LLL == 1 and args.verbose:
-        print('Note: LLL block size is 1. '
+        print('Note: LLL block size is <=2. '
               'Tip: Add `--LLL <blocksize>` to run LLL locally, '
               'which usually provides a speed up.', file=stderr)
 
@@ -133,10 +133,10 @@ def __main__():
     if args.profile:
         prof = get_profile(B_red)
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n',
-              f'Root hermite factor: {rhf(prof):.6f}', file=stderr)
+              f'Root hermite factor: {rhf(prof):.6f}, ||b_1|| = {exp(prof[0]):.3f}', file=stderr)
 
 
 ###############################################################################
 if __name__ == '__main__':
-    np.set_printoptions(linewidth=1000000, threshold=2147483647, suppress=True)
+    np.set_printoptions(linewidth=1000, threshold=2147483647, suppress=True)
     __main__()
