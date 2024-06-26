@@ -11,7 +11,7 @@
 #define UU(row, col) U[(row) * N + (col)]
 
 template<const int N>
-void lll_reduce(FT R[N * N], ZZ U[N * N], FT delta) {
+bool lll_reduce(FT R[N * N], ZZ U[N * N], FT delta) {
 	// Initialize U with the identity matrix
 	std::fill_n(U, N * N, 0);
 	for (int i = 0; i < N; i++) {
@@ -24,7 +24,7 @@ void lll_reduce(FT R[N * N], ZZ U[N * N], FT delta) {
 			if (RR(i, j) < -0.5 or RR(i, j) > 0.5) {
 				fprintf(stderr, "ERROR: R is not an upper-triangular matrix!\n");
 				fflush(stderr);
-				return;
+				return false;
 			}
 		}
 	}
@@ -36,7 +36,7 @@ void lll_reduce(FT R[N * N], ZZ U[N * N], FT delta) {
 		if (++iters > 10'000'000) {
 			fprintf(stderr, "ERROR: a potentially infinite loop is detected in LLL!\n");
 			fflush(stderr);
-			break;
+			return false;
 		}
 
 		if (SQ(RR(k, k + 1)) + SQ(RR(k + 1, k + 1)) > delta * SQ(RR(k, k))) {
@@ -81,10 +81,11 @@ void lll_reduce(FT R[N * N], ZZ U[N * N], FT delta) {
 
 		if (k > 0) k--;
 	}
+	return true;
 }
 
 #define F(N) \
-	void lll_reduce_##N(FT *R, ZZ *U, FT delta) { lll_reduce<N>(R, U, delta); }
+	bool lll_reduce_##N(FT *R, ZZ *U, FT delta) { return lll_reduce<N>(R, U, delta); }
 
 extern "C" {
 	F( 1) F( 2) F( 3) F( 4) F( 5) F( 6) F( 7) F( 8)
@@ -95,4 +96,25 @@ extern "C" {
 	F(41) F(42) F(43) F(44) F(45) F(46) F(47) F(48)
 	F(49) F(50) F(51) F(52) F(53) F(54) F(55) F(56)
 	F(57) F(58) F(59) F(60) F(61) F(62) F(63) F(64)
+
+	bool lll_reduce_n(const int n, FT *R, ZZ *U, FT delta) {
+		#define G(N) \
+			case N: return lll_reduce<N>(R, U, delta);
+
+		switch (n) {
+		G( 1) G( 2) G( 3) G( 4) G( 5) G( 6) G( 7) G( 8)
+		G( 9) G(10) G(11) G(12) G(13) G(14) G(15) G(16)
+		G(17) G(18) G(19) G(20) G(21) G(22) G(23) G(24)
+		G(25) G(26) G(27) G(28) G(29) G(30) G(31) G(32)
+		G(33) G(34) G(35) G(36) G(37) G(38) G(39) G(40)
+		G(41) G(42) G(43) G(44) G(45) G(46) G(47) G(48)
+		G(49) G(50) G(51) G(52) G(53) G(54) G(55) G(56)
+		G(57) G(58) G(59) G(60) G(61) G(62) G(63) G(64)
+
+		default:
+			fprintf(stderr, "Only dimension <= 64 is supported.\n");
+			fflush(stderr);
+			return false;
+		}
+	}
 }

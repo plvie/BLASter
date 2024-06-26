@@ -1,15 +1,12 @@
-# This Makefile compiles the C-parts of the python program dual_utils.py
+# This Makefile compiles Cython
 .POSIX:
 
-all: lll.so
+.PHONY: cython
+
+all: cython
 
 clean:
-	rm -f lll.so
+	python setup.py clean
 
-CXX=g++
-CXXFLAGS=-Wall --std=c++17
-
-lll.so: lll.cpp
-	$(CXX) $(CXXFLAGS) -fPIC -Ofast -march=native -shared -o lll.so lll.cpp $(LIBS)
-# $(CXX) $(CXXFLAGS) -fPIC -g -fsanitize=address,undefined -shared -o lll.so lll.cpp $(LIBS)
-
+cython:
+	python setup.py build_ext --inplace

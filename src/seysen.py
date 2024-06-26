@@ -6,8 +6,9 @@ from math import sqrt
 from multiprocessing import Pool
 from sys import stderr
 from time import perf_counter_ns
-from ctypes import CDLL, POINTER, c_double, c_longlong
 import numpy as np
+
+from seysen_lll import perform_lll_on_blocks
 
 has_eigen = True
 try:
@@ -195,18 +196,6 @@ def is_qr_of(B, R):
     return are_eq
 
 
-_c_dll: CDLL
-_delta: float
-
-
-def lll_block(kwargs):
-    i, j, R = kwargs
-    U = np.zeros((j - i, j - i), dtype=c_longlong)
-    rp, up = R.ctypes.data_as(POINTER(c_double)), U.ctypes.data_as(POINTER(c_longlong))
-    CDLL('./lll.so')['lll_reduce_' + str(j - i)](rp, up, c_double(_delta))
-    return i, j, U
-
-
 def seysen_lll(B, args):
     """
     :param B: a basis, consisting of *column vectors*.
@@ -227,12 +216,6 @@ def seysen_lll(B, args):
     # 2) When a block size > n/2 is used, only 1 block is used, which is slow.
     block_size = min(lll_size, 64, n // 2)
 
-    if block_size > 2:
-        _c_dll = CDLL('./lll.so')
-        _delta = delta
-        even_blocks = [(i, min(i + block_size, n)) for i in range(0, n, block_size)]
-        odd_blocks = [(i, min(i + block_size, n)) for i in range(block_size // 2, n, block_size)]
-
     with Pool(cores) as p:
         while is_modified:
             t1 = perf_counter_ns()
@@ -242,13 +225,13 @@ def seysen_lll(B, args):
 
             t2 = perf_counter_ns()
 
+            # Step 2: Call LLL concurrently on small blocks.
             if block_size > 2:
-                # Step 2: Call LLL concurrently on small blocks.
-                blocks = [even_blocks, odd_blocks][prof.num_iterations % 2]
-                jobs = [(i, j, R[i:j, i:j]) for i, j in blocks]
-                for (i, j, u) in p.imap_unordered(lll_block, jobs):
-                    U[:, i:j] = U[:, i:j] @ u
-
+                offset = block_size//2 if prof.num_iterations % 2 == 1 else 0
+                result = perform_lll_on_blocks(R, U, delta, offset, block_size)
+                if not result:
+                    print("An error occured in the C++ level. Aborting...")
+                    exit(1)
                 # LLL "destroys" the QR decomposition, so do it again.
                 R = qr_decompose(B @ U)
 
