@@ -10,7 +10,6 @@ from multiprocessing import cpu_count
 from sys import stderr
 
 import numpy as np
-from threadpoolctl import threadpool_limits
 
 from lattice_io import read_matrix, write_matrix
 from seysen import seysen_lll
@@ -23,6 +22,8 @@ def gh(dim):
     :param n: lattice dimension
     :returns: GH(n)
     """
+    if dim >= 100:
+        return float(dim / (2*pi*exp(1)))**0.5
     return float(gamma(1.0 + 0.5 * dim)**(1.0 / dim) / pi**0.5)
 
 
@@ -81,7 +82,7 @@ def __main__():
 
     # LLL block size
     parser.add_argument(
-            '--LLL', '-l', type=int, default=1,
+            '--LLL', '-L', type=int, default=1,
             help='Size of blocks on which to call LLL locally')
 
     args = parser.parse_args()
@@ -92,7 +93,7 @@ def __main__():
               'Tip: Add `--LLL <blocksize>` to run LLL locally, '
               'which usually provides a speed up.', file=stderr)
 
-    B = read_matrix(args.input, args.verbose)
+    B = np.ascontiguousarray(read_matrix(args.input, args.verbose))
     n = len(B)
 
     # Assumption: B is a q-ary lattice.
@@ -103,14 +104,14 @@ def __main__():
     log_det = sum(get_profile(B))
     expected_shortest = exp(log_slope * (n-1) + log_det / n)
     if args.verbose:
-        print(f'Note: Gaussian Heuristic predicts vector of norm {gh(n) * exp(log_det/n):.3f}\n'
-              f'Expected shortest vector: {expected_shortest:.3f} <(?) {int(q):d}',
+        print(f'E[ ||b_1|| ~ {expected_shortest:.3f} <(?) {int(q):d} ',
+              f'(GH: lambda_1 ~ {gh(n) * exp(log_det/n):.3f})',
               file=stderr)
-    assert expected_shortest < q, 'q-ary vector could be part of an LLL reduced basis!'
+    if expected_shortest >= q and input('A q-vector could be part of the reduced basis! Continue? (y/n)? ') != 'y':
+        return
 
-    with threadpool_limits(limits=1):
-        # Perform Seysen-LLL reduction on basis B
-        U, B_red, prof = seysen_lll(B, args)
+    # Perform Seysen-LLL reduction on basis B
+    U, B_red, prof = seysen_lll(B, args)
 
     # Print U and B_red to stdout
     if not args.quiet:
@@ -132,8 +133,8 @@ def __main__():
     # Print profile
     if args.profile:
         prof = get_profile(B_red)
-        print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n',
-              f'Root hermite factor: {rhf(prof):.6f}, ||b_1|| = {exp(prof[0]):.3f}', file=stderr)
+        print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']',
+              f'Root Hermite factor: {rhf(prof):.6f}, ||b_1|| = {exp(prof[0]):.3f}', sep='\n', file=stderr)
 
 
 ###############################################################################

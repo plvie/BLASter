@@ -12,8 +12,11 @@ import numpy as np
 # comes from the cimported module and what comes from the imported module,
 # however you can use the same name for both if you wish.
 cimport numpy as cnp
+cimport cython
+from cython.parallel cimport prange
 
-from block_lll cimport ZZ, FT, lll_reduce_n
+from block_lll cimport ZZ, lll_reduce_n
+from eigen_matmul cimport eigen_init as _eigen_init, eigen_matmul as _eigen_matmul, eigen_right_matmul as _eigen_right_matmul
 
 # It's necessary to call "import_array" if you use any part of the
 # numpy PyArray_* API. From Cython 3, accessing attributes like
@@ -34,31 +37,67 @@ ctypedef cnp.int64_t DTYPE_ZZ_t
 ctypedef cnp.float64_t DTYPE_FT_t
 
 
-# TODO: add these two lines, when a first version works!
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def perform_lll_on_blocks(
         cnp.ndarray[DTYPE_FT_t, ndim=2] R,
         cnp.ndarray[DTYPE_ZZ_t, ndim=2] U,
-        FT delta,
+        double delta,
         int offset,
-        int block_size):
+        int block_size) -> bool:
 
-    cdef int n = R.shape[0], i, j, w
-    cdef FT[:, :] R_sub
-    cdef ZZ[:, :] U_sub
+    cdef Py_ssize_t n = R.shape[0]
+    cdef int idx, i, j, k, w
+    cdef n_blocks = (n - offset + block_size - 1) // block_size
+    cdef double[:, ::1] R_sub = np.empty(shape=(block_size, n), dtype=DTYPE_FT)
+    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(block_size, n), dtype=DTYPE_ZZ)
+
+    for i in range(offset, n, block_size):
+        w = min(n - i, block_size)
+        for j in range(w):
+            for k in range(i, i + w):
+                R_sub[j, k] = R[i + j, k]
 
     # Check that these are of the correct type:
     assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
 
+    cdef int res = 0
+    for i in prange(offset, n, block_size, nogil=True):
+        j = min(n, i + block_size)
+        if not lll_reduce_n(j - i, &R_sub[0, i], &U_sub[0, i], delta, n):
+            res = 1
+            break
+    if res == 1:
+        return False
+
+    # TODO: Make the part of U that needs transforming continuous, such that the matrix multiplication can be done in parallel:
     for i in range(offset, n, block_size):
         j = min(n, i + block_size)
-        w = j - i
-
-        # TODO: Alternatively, we could pass the 'stride' of `n` to the C++ level.
-        R_sub = np.ascontiguousarray(R[i:j, i:j])
-        U_sub = np.zeros([w, w], dtype=DTYPE_ZZ)
-        if not lll_reduce_n(w, &R_sub[0, 0], &U_sub[0, 0], delta):
-            return False
-        U[:, i:j] = U[:, i:j] @ U_sub
+        U[:, i:j] = U[:, i:j] @ np.asarray(U_sub)[0:j - i, i:j]
     return True
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def eigen_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] B) -> cnp.ndarray[DTYPE_ZZ_t]:
+    cdef int n = A.shape[0]
+    cdef int m = A.shape[1]
+    cdef int k = B.shape[1]
+    assert B.shape[0] == m, "Dimension mismatch"
+    cdef ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=DTYPE_ZZ)
+
+    _eigen_matmul(<const ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], &C[0, 0], n, m, k)
+    return np.asarray(C)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def eigen_right_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] B) -> None:
+    cdef int n = A.shape[0]
+    assert A.shape[1] == n and B.shape[0] == n and B.shape[1] == n, "Dimension mismatch"
+
+    _eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n)
+
+
+def eigen_init(int num_cores=0):
+    _eigen_init(num_cores)
