@@ -199,8 +199,14 @@ def is_qr_of(B, R):
 def seysen_lll(B, args):
     """
     :param B: a basis, consisting of *column vectors*.
-    :param delta: delta factor
-    :return: transformation matrix U such that BU is LLL reduced.
+    :param args: arguments containing:
+        - delta: delta factor for Lagrange reduction,
+        - cores: number of cores to use, and
+        - LLL:   the block-size for LLL.
+    :return: tuple (U, B @ U, profile) where:
+        U: the transformation matrix such that B @ U is LLL reduced,
+        B @ U: an LLL-reduced basis,
+        profile: TimeProfile object.
     """
     delta, cores, lll_size = args.delta, args.cores, args.LLL
     n, is_modified, prof = len(B), True, TimeProfile()
@@ -218,8 +224,7 @@ def seysen_lll(B, args):
         t1 = perf_counter_ns()
 
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
-        with threadpool_limits(limits=1):
-            R = qr_decompose(B_red)
+        R = qr_decompose(B_red)
 
         t2 = perf_counter_ns()
 

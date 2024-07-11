@@ -8,6 +8,7 @@ import argparse
 from math import exp, gamma, log, pi, prod
 from multiprocessing import cpu_count
 from sys import stderr
+from threadpoolctl import threadpool_limits
 
 import numpy as np
 
@@ -104,14 +105,15 @@ def __main__():
     log_det = sum(get_profile(B))
     expected_shortest = exp(log_slope * (n-1) + log_det / n)
     if args.verbose:
-        print(f'E[ ||b_1|| ~ {expected_shortest:.3f} <(?) {int(q):d} ',
-              f'(GH: lambda_1 ~ {gh(n) * exp(log_det/n):.3f})',
+        print(f'E[∥b₁∥] ~ {expected_shortest:.2f} <(?) {int(q):d} ',
+              f'(GH: λ₁ ~ {gh(n) * exp(log_det/n):.2f})',
               file=stderr)
     if expected_shortest >= q and input('A q-vector could be part of the reduced basis! Continue? (y/n)? ') != 'y':
         return
 
     # Perform Seysen-LLL reduction on basis B
-    U, B_red, prof = seysen_lll(B, args)
+    with threadpool_limits(limits=1):
+        U, B_red, prof = seysen_lll(B, args)
 
     # Print U and B_red to stdout
     if not args.quiet:

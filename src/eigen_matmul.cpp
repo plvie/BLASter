@@ -1,6 +1,5 @@
 #include <Eigen/Core>
 #include <Eigen/Dense>
-// #include <cstdio>
 
 typedef Eigen::Matrix<long long, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> MatrixXZZ;
 
@@ -13,7 +12,6 @@ typedef Eigen::Matrix<long long, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor
  * https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
  */
 void eigen_matmul(const long long *a, const long long *b, long long *c, int n, int m, int k) {
-	// printf("%d ", (int) Eigen::nbThreads());
 	Eigen::Map<const MatrixXZZ> ma(a, n, m);
 	Eigen::Map<const MatrixXZZ> mb(b, m, k);
 	Eigen::Map<MatrixXZZ> mc(c, n, k);
@@ -29,7 +27,6 @@ void eigen_matmul(const long long *a, const long long *b, long long *c, int n, i
  * https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
  */
 void eigen_right_matmul(long long *a, const long long *b, int n) {
-	// printf("%d ", (int) Eigen::nbThreads());
 	Eigen::Map<MatrixXZZ> ma(a, n, n);
 	Eigen::Map<const MatrixXZZ> mb(b, n, n);
 
@@ -43,4 +40,7 @@ void eigen_init(int num_cores) {
 	if (num_cores > 0) {
 		Eigen::setNbThreads(num_cores);
 	}
+
+	// To check number of threads, use:
+	// printf("%d ", (int) Eigen::nbThreads());
 }

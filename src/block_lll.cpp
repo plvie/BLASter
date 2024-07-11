@@ -79,6 +79,7 @@ bool lll_reduce(double *R, ZZ *U, double delta, size_t row_stride) {
 
 		if (k > 0) k--;
 	}
+	// printf("%d ", iters);
 	return true;
 }
 
