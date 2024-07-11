@@ -95,12 +95,12 @@ def qr_decompose(B):
             return eigen_cholesky(B.transpose() @ B)
         else:
             Bf = B.astype(np.float64)
-            R = np.identity(len(B), dtype=np.float64)
+            R = np.identity(B.shape[1], dtype=np.float64)
             block_cholesky(Bf.transpose() @ Bf, R)
             return R
     else:
         R = np.linalg.qr(B, mode='r')
-        for i in range(len(B)):
+        for i in range(B.shape[1]):
             if R[i, i] < 0:
                 # Negate this row.
                 R[i, i:] *= -1
@@ -209,7 +209,7 @@ def seysen_lll(B, args):
         profile: TimeProfile object.
     """
     delta, cores, lll_size = args.delta, args.cores, args.LLL
-    n, is_modified, prof = len(B), True, TimeProfile()
+    n, is_modified, prof = B.shape[1], True, TimeProfile()
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.float64)
