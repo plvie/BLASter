@@ -3,6 +3,7 @@ from sys import platform
 from setuptools import Extension, setup
 from Cython.Build import cythonize
 
+import numpy as np
 
 
 # Make sure OpenMP is used in Cython and Eigen.
@@ -12,7 +13,7 @@ else:
     openmp_arg = '-fopenmp'
 
 # Look for the Eigen library in `/usr/include` and `~/.local/include`.
-include_dirs = []
+include_dirs = [np.get_include()]
 for f in [Path('/usr/include/eigen3'), Path.home().joinpath('.local/include/eigen3')]:
     if f.exists() and f.is_dir():
         include_dirs += [str(f)]
