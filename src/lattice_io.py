@@ -45,7 +45,7 @@ def write_matrix(output_file, basis, reverse=True):
     basis = basis.transpose()
 
     if reverse:
-        basis = reversed(basis)
+        basis = list(reversed(basis))
 
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('[')

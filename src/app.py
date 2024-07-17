@@ -39,7 +39,7 @@ def get_profile(B):
 def rhf(profile):
     """
     Return the root Hermite factor, given the profile of some basis, i.e.
-        rhf(B) = (||b_0|| / det(B))^{1/(n-1)}.
+        rhf(B) = (||b_0|| / det(B)^{1/n})^{1/(n-1)}.
     :param profile: profile belonging to some basis of some lattice
     """
     n = len(profile)
@@ -54,27 +54,23 @@ def __main__():
             epilog='Input/output is formatted as is done in fpLLL')
 
     # Global settings
-    parser.add_argument(
-            '--verbose', '-v', action='store_true', help='Verbose output')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
     parser.add_argument(
             '--cores', '-j', type=int, default=cpu_count() // 2,
             help='number of cores to be used')
-    parser.add_argument(
-            '--quiet', '-q', action='store_true',
-            help='Quiet mode will not output the output basis')
 
     # I/O arguments
-    parser.add_argument(
-            '--input', '-i', type=str,
-            help='Input file (default=stdin)')
-    parser.add_argument(
-            '--output', '-o', type=str,
-            help='Output file (default=stdout)')
+    parser.add_argument('--input', '-i', type=str, help='Input file (default=stdin)')
+    parser.add_argument('--output', '-o', type=str, help='Output file (default=stdout)')
 
     # Output profile?
     parser.add_argument(
             '--profile', '-p', action='store_true',
             help='Give information on the profile of the output basis')
+    # Do not output reduced basis?
+    parser.add_argument(
+            '--quiet', '-q', action='store_true',
+            help='Quiet mode will not output the output basis')
 
     # Lovasz condition
     parser.add_argument(
@@ -105,19 +101,14 @@ def __main__():
     log_det = sum(get_profile(B))
     expected_shortest = exp(log_slope * (n-1) + log_det / n)
     if args.verbose:
-        print(f'E[∥b₁∥] ~ {expected_shortest:.2f} <(?) {int(q):d} ',
+        cmp = "<" if expected_shortest < q else ">="
+        print(f'E[∥b₁∥] ~ {expected_shortest:.2f} {cmp} {int(q):d} ',
               f'(GH: λ₁ ~ {gh(n) * exp(log_det/n):.2f})',
               file=stderr)
-    if expected_shortest >= q and input('A q-vector could be part of the reduced basis! Continue? (y/n)? ') != 'y':
-        return
 
     # Perform Seysen-LLL reduction on basis B
     with threadpool_limits(limits=1):
         U, B_red, prof = seysen_lll(B, args)
-
-    # Print U and B_red to stdout
-    if not args.quiet:
-        print('\nU:', U.astype(np.int64), 'B_red:', B_red.astype(np.int64), sep='\n')
 
     # Write B_red to the output file
     print_mat = args.output is not None
@@ -126,7 +117,7 @@ def __main__():
     if print_mat:
         write_matrix(args.output, B_red)
     elif not args.quiet:
-        print('\nB:\n', B_red.astype(np.int64), sep="")
+        print(B_red.astype(np.int64))
 
     # Print time consumption
     if args.verbose:
@@ -138,6 +129,7 @@ def __main__():
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']',
               f'Root Hermite factor: {rhf(prof):.6f}, ||b_1|| = {exp(prof[0]):.3f}', sep='\n', file=stderr)
 
+    assert (B @ U == B_red).all()
 
 ###############################################################################
 if __name__ == '__main__':

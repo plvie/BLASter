@@ -15,7 +15,7 @@ cimport numpy as cnp
 cimport cython
 from cython.parallel cimport prange
 
-from block_lll cimport ZZ, lll_reduce_n
+from block_lll cimport FT, ZZ, lll_reduce
 from eigen_matmul cimport eigen_init as _eigen_init, eigen_matmul as _eigen_matmul, eigen_right_matmul as _eigen_right_matmul
 
 # It's necessary to call "import_array" if you use any part of the
@@ -42,15 +42,18 @@ ctypedef cnp.float64_t DTYPE_FT_t
 def perform_lll_on_blocks(
         cnp.ndarray[DTYPE_FT_t, ndim=2] R,
         cnp.ndarray[DTYPE_ZZ_t, ndim=2] U,
-        double delta,
+        FT delta,
         int offset,
         int block_size) -> bool:
 
     cdef Py_ssize_t n = R.shape[0]
     cdef int idx, i, j, k, w
     cdef n_blocks = (n - offset + block_size - 1) // block_size
-    cdef double[:, ::1] R_sub = np.empty(shape=(block_size, n), dtype=DTYPE_FT)
+    cdef FT[:, ::1] R_sub = np.empty(shape=(block_size, n), dtype=DTYPE_FT)
     cdef ZZ[:, ::1] U_sub = np.zeros(shape=(block_size, n), dtype=DTYPE_ZZ)
+
+    # Check that these are of the correct type:
+    assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
 
     for i in range(offset, n, block_size):
         w = min(n - i, block_size)
@@ -58,19 +61,16 @@ def perform_lll_on_blocks(
             for k in range(i, i + w):
                 R_sub[j, k] = R[i + j, k]
 
-    # Check that these are of the correct type:
-    assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
-
     cdef int res = 0
     for i in prange(offset, n, block_size, nogil=True):
         j = min(n, i + block_size)
-        if not lll_reduce_n(j - i, &R_sub[0, i], &U_sub[0, i], delta, n):
+        if not lll_reduce(j - i, &R_sub[0, i], &U_sub[0, i], delta, n):
             res = 1
-            break
     if res == 1:
         return False
 
-    # TODO: Make the part of U that needs transforming continuous, such that the matrix multiplication can be done in parallel:
+    # TODO: Make the part of U that needs transforming continuous,
+    # such that the matrix multiplication can be done in parallel:
     for i in range(offset, n, block_size):
         j = min(n, i + block_size)
         U[:, i:j] = U[:, i:j] @ np.asarray(U_sub)[0:j - i, i:j]

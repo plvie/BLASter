@@ -2,13 +2,20 @@
 LLL reduction with Seysen instead of size reduction.
 """
 
-from math import sqrt
+from math import sqrt, log
 from sys import stderr
 from time import perf_counter_ns
 import numpy as np
 from threadpoolctl import threadpool_limits
 
 from seysen_lll import perform_lll_on_blocks, eigen_init, eigen_matmul, eigen_right_matmul
+
+
+def potential(B):
+    profile = [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
+    n = len(profile)
+    return sum((n - i) * profile[i] for i in range(n))
+
 
 has_eigenpy = True
 try:
@@ -135,45 +142,33 @@ def seysen_reduce(R, U):
         seysen_reduce(R[:m, :m], U[:m, :m])
         seysen_reduce(R[m:, m:], U[m:, m:])
 
-        S11 = R[:m, :m] @ U[:m, :m]
-        S12 = R[:m, m:] @ U[m:, m:]
+        S11 = R[:m, :m] @ U[:m, :m].astype(np.float64)
+        S12 = R[:m, m:] @ U[m:, m:].astype(np.float64)
 
-        W = np.rint(np.linalg.inv(S11) @ S12)  # W = round(S11^{-1} S12).
+        # W = round(S11^{-1} S12).
+        W = np.rint(np.linalg.inv(S11) @ S12).astype(np.int64)
         # Now take the fractional part of the entries of W.
-        U[:m, m:] = -U[:m, :m] @ W
+        U[:m, m:] = eigen_matmul(np.ascontiguousarray(-U[:m, :m]), W)
 
 
-def lagrange_reduce(R, delta=.99):
+def is_weakly_lll_reduced(R, delta=.99):
     """
-    Tries to perform lagrange reduction, on all the even or odd indices.
+    Return whether R is Weakly-LLL reduced
     :param R: upper-triangular matrix
     :param delta: delta-factor used in the Lovasz condition
-    :return: pair of:
-        1) a transformation matrix U such that RU is Lagrange-reduced,
-        2) a bool whether some reduction happened.
+    :return: bool
     """
     n = len(R)
-    U = np.identity(n, dtype=np.int64)
-    last_change = -2
-
     for pos in range(0, n - 1):
-        if last_change == pos - 1:
-            # The disjoint lagrange reductions yield independent transformation matrices.
-            continue
+        # vector b0 = (u, 0)
+        u = abs(R[pos, pos])
+        # vector b1 = (v, w)
+        v, w = R[pos, pos + 1], R[pos + 1, pos + 1]
+        v_mod = ((v + u/2) % u) - u/2
 
-        b0x = R[pos, pos]  # vector b0
-        b1x, b1y = R[pos, pos + 1], R[pos + 1, pos + 1]  # vector b1
-
-        if b1x * b1x + b1y * b1y < delta * (b0x * b0x):
-            last_change = pos
-
-            # Reduce by making a swap and size-reducing b0 w.r.t. b1.
-            q = round((b0x * b1x) / (b1x * b1x + b1y * b1y))
-            # [b0', b1'] = [b1, b0 - q b1] = [b0, b1] U, with U=[[0,1],[1,q]]
-            U[pos, pos] = 0
-            U[pos + 1, pos] = U[pos, pos + 1] = 1
-            U[pos + 1, pos + 1] = -q
-    return U, (last_change >= 0)
+        if v_mod**2 + w**2 <= delta * u**2:
+            return False
+    return True
 
 
 def matrices_are_equal(A, B, epsilon=1e-6):
@@ -208,19 +203,15 @@ def seysen_lll(B, args):
         B @ U: an LLL-reduced basis,
         profile: TimeProfile object.
     """
-    delta, cores, lll_size = args.delta, args.cores, args.LLL
-    n, is_modified, prof = B.shape[1], True, TimeProfile()
+    n, is_reduced, prof = B.shape[1], False, TimeProfile()
+    delta, cores, lll_size = args.delta, args.cores, min(max(2, args.LLL), n)
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
-    U_seysen = np.identity(n, dtype=np.float64)
+    U_seysen = np.identity(n, dtype=np.int64)
 
     eigen_init(cores)
 
-    # 1) The C function supports block sizes up to 64.
-    # 2) When a block size > n/2 is used, only 1 block is used, which is slow.
-    block_size = min(lll_size, 64, n // 2)
-
-    while is_modified:  # and prof.num_iterations <= 10:
+    while not is_reduced:
         t1 = perf_counter_ns()
 
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
@@ -229,20 +220,20 @@ def seysen_lll(B, args):
         t2 = perf_counter_ns()
 
         # Step 2: Call LLL concurrently on small blocks.
-        if block_size > 2:
-            offset = block_size//2 if prof.num_iterations % 2 == 1 else 0
-            result = perform_lll_on_blocks(R, U, delta, offset, block_size)
-            if not result:
-                print("An error occured in the C++ level. Aborting...")
-                exit(1)
-            # LLL "destroys" the QR decomposition, so do it again.
-            B_red = eigen_matmul(B, U)  # B @ U
-            R = qr_decompose(B_red)
+        offset = lll_size//2 if prof.num_iterations % 2 == 1 else 0
+        result = perform_lll_on_blocks(R, U, delta, offset, lll_size)
+        if not result:
+            print("An error occured in the C++ level. Aborting...")
+            exit(1)
+
+        B_red = eigen_matmul(B, U)  # B @ U
+        # LLL "destroys" the QR decomposition, so do it again.
+        R = qr_decompose(B_red)
 
         t3 = perf_counter_ns()
 
         # Step 3: Seysen reduce the upper-triangular matrix R.
-        with threadpool_limits(limits=1):
+        with np.errstate(all='raise'), threadpool_limits(limits=1):
             seysen_reduce(R, U_seysen)
 
         t4 = perf_counter_ns()
@@ -250,17 +241,12 @@ def seysen_lll(B, args):
         # Step 4: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
         # Note: this step is negligible compared to the rest.
         # Note: we multiply R and U_seysen using BLAS in numpy.
-        U_lagrange, is_modified = lagrange_reduce(R @ U_seysen, delta)
+        is_reduced = is_weakly_lll_reduced(R @ U_seysen, delta)
 
         # Step 5: Update matrices with the transformation matrices from Step 3 & 4.
         with np.errstate(all='raise'):
-            # U_update = (U_seysen @ U_lagrange).astype(np.int64)
-            # U = U @ U_update
-            # B_red = B @ U
-            U_update = (U_seysen @ U_lagrange).astype(np.int64)
-            # U = eigen_matmul(U, U_update)
-            eigen_right_matmul(U, U_update)
-            B_red = eigen_matmul(B, U)
+            eigen_right_matmul(U, U_seysen)
+            eigen_right_matmul(B_red, U_seysen)
 
         t5 = perf_counter_ns()
 
