@@ -1,5 +1,5 @@
 """
-Read/write a matrix in FPLLL's latticegen format, into/from numpy array.
+Read/write a matrix in fplll format, to/from numpy array.
 """
 import numpy as np
 
@@ -7,15 +7,14 @@ import numpy as np
 def read_matrix(input_file, verbose=False, reverse=True):
     """
     Read a matrix from a file, or from stdin.
-    :param input_file: file name, or None (reads from stdin).
+    :param input_file: file name, or when None, read from stdin.
     :param verbose: ask for input when having no file name
-    :return: a matrix
+    :param reverse: whether to reverse the ordering of the outputted column vectors.
+    :return: a matrix consisting of column vectors.
     """
     data = []
     if input_file is None:
-        if verbose:
-            print("Supply a matrix in fpLLL format:")
-        data.append(input())
+        data.append(input("Supply a matrix in fplll format:\n" if verbose else ""))
         while data[-1][-2] != ']':
             data.append(input())
     else:
@@ -29,23 +28,22 @@ def read_matrix(input_file, verbose=False, reverse=True):
     data[-1] = data[-1][:-1]
 
     # Convert data to list of integers
-    for i in range(len(data)):
-        data[i] = list(map(int, data[i][1:-1].split(' ')))
+    data = [list(map(int, line[1:-1].split(' '))) for line in data]
 
     if reverse:
         data.reverse()
-
     # Use column vectors.
     return np.array(data, dtype=np.int64).transpose()
 
 
-def write_matrix(output_file, basis, reverse=True):
-    # Assume that the basis is given with column vectors as input.
-    # However, output them as row vectors.
+def write_matrix(output_file, basis):
+    """
+    Outputs a basis with column vectors to a file in fplll format.
+    :param input_file: file name, or None (reads from stdin).
+    :param basis: the matrix to output
+    :param reverse: whether to reverse the ordering of the outputted column vectors.
+    """
     basis = basis.transpose()
-
-    if reverse:
-        basis = list(reversed(basis))
 
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('[')

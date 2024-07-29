@@ -44,8 +44,9 @@ def perform_lll_on_blocks(
         cnp.ndarray[DTYPE_ZZ_t, ndim=2] U,
         FT delta,
         int offset,
-        int block_size) -> bool:
+        int block_size) -> None:
 
+    # Variables
     cdef Py_ssize_t n = R.shape[0]
     cdef int idx, i, j, k, w
     cdef n_blocks = (n - offset + block_size - 1) // block_size
@@ -55,26 +56,20 @@ def perform_lll_on_blocks(
     # Check that these are of the correct type:
     assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
 
-    for i in range(offset, n, block_size):
+    for i in prange(offset, n, block_size, nogil=True):
         w = min(n - i, block_size)
         for j in range(w):
             for k in range(i, i + w):
                 R_sub[j, k] = R[i + j, k]
-
-    cdef int res = 0
     for i in prange(offset, n, block_size, nogil=True):
-        j = min(n, i + block_size)
-        if not lll_reduce(j - i, &R_sub[0, i], &U_sub[0, i], delta, n):
-            res = 1
-    if res == 1:
-        return False
+        w = min(n - i, block_size)
+        lll_reduce(w, &R_sub[0, i], &U_sub[0, i], delta, n)
 
     # TODO: Make the part of U that needs transforming continuous,
     # such that the matrix multiplication can be done in parallel:
     for i in range(offset, n, block_size):
         j = min(n, i + block_size)
         U[:, i:j] = U[:, i:j] @ np.asarray(U_sub)[0:j - i, i:j]
-    return True
 
 
 @cython.boundscheck(False)

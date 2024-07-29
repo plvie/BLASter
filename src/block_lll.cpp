@@ -8,7 +8,7 @@ typedef double FT;
 typedef long long ZZ;
 
 extern "C" {
-	bool lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride);
+	void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride);
 }
 
 #define SQ(x) ((x) * (x))
@@ -38,22 +38,11 @@ void size_reduce(const int N, FT *R, ZZ *U, size_t row_stride, int i, int j)
 /*
  * Apply LLL to the basis, and return the transformation matrix U such that RU is LLL-reduced.
  */
-bool lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride)
+void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride)
 {
 	// Initialize U with the identity matrix
 	for (int i = 0; i < N; i++) {
 		UU(i, i) = 1;
-	}
-
-	// Check that R is an upper-triangular matrix.
-	for (int i = 0; i < N; i++) {
-		for (int j = 0; j < i; j++) {
-			if (RR(i, j) < -0.5 or RR(i, j) > 0.5) {
-				fprintf(stderr, "ERROR: R is not an upper-triangular matrix!\n");
-				fflush(stderr);
-				return false;
-			}
-		}
 	}
 
 	// Loop invariant: [0, k] is LLL-reduced (size-reduced and Lagrange reduced).
@@ -91,13 +80,12 @@ bool lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stri
 			std::swap(UU(i, k), UU(i, k + 1));
 		}
 
-		// 4. Swap R_k and R_{k+1} (except the already processed 2x2 block).
+		// 4. Swap R_k and R_{k+1}, except the already processed 2x2 block.
 		for (int i = 0; i < k; i++) {
 			std::swap(RR(i, k), RR(i, k + 1));
 		}
 
-		// 5. Make sure b_k is in fact LLL-reduced, so decrease `k`.
+		// 5. Decrease `k` such that the loop invariant holds.
 		if (k > 0) k--;
 	}
-	return true;
 }

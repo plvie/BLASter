@@ -127,7 +127,7 @@ def __main__():
     if args.profile:
         prof = get_profile(B_red)
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']',
-              f'Root Hermite factor: {rhf(prof):.6f}, ||b_1|| = {exp(prof[0]):.3f}', sep='\n', file=stderr)
+              f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}', sep='\n', file=stderr)
 
     assert (B @ U == B_red).all()
 

@@ -17,18 +17,6 @@ def potential(B):
     return sum((n - i) * profile[i] for i in range(n))
 
 
-has_eigenpy = True
-try:
-    from eigenpy import LLT
-except ImportError:
-    # print('Library `eigenpy` is not found.')
-    has_eigenpy = False
-
-# Global toggle whether to use Block_cholesky from [KEF21].
-# If set to False, we will use the function 'linalg.qr' from numpy.
-USE_BLOCK_CHOLESKY = False
-
-
 class TimeProfile:
     """
     Object containing time spent on different parts within Seysen-LLL reduction.
@@ -62,57 +50,6 @@ class TimeProfile:
                 f"Time LLL    reduction: {self.time_lll:18,d} ns\n"
                 f"Time Seysen reduction: {self.time_seysen:18,d} ns\n"
                 f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
-
-
-# Turns out, this is slower than `R = np.linalg.qr(B, 'r')`.
-def block_cholesky(G, R):
-    """
-    Return the Cholesky decomposition of G using a recursive strategy, based on [KEF21], but using
-    2 instead of 4 matrix multiplications.
-    [KEF21] Towards Faster Polynomial-Time Lattice Reduction
-    :param G: gram matrix of some basis.
-    :param R: result R will be upper triangular satisfying: `R^T R = G`.
-    :return: None! Result is stored in R.
-    """
-    if len(G) == 1:
-        R[0, 0] = np.array([[sqrt(G[0, 0])]])
-    else:
-        m = len(G) // 2
-        # Given G = B^T B, find upper-triangular R = [[R0, S], [0, R1]],
-        # such that R^T R = G.
-
-        # Line 3: Recover R0.
-        block_cholesky(G[:m, :m], R[:m, :m])
-        # Line 4: S satisfies: G01 = R0^T S --> (S = R0^{-T} G01)
-        R[:m, m:] = np.linalg.inv(R[:m, :m]).transpose() @ G[:m, m:]
-        # Line 5: Recover R1 = BlockCholesky(G11 - S^T S)
-
-        schur = G[m:, m:] - R[:m, m:].transpose() @ R[:m, m:]
-        block_cholesky(schur, R[m:, m:])
-
-
-def eigen_cholesky(G):
-    return LLT(G).matrixL().transpose()
-
-
-def qr_decompose(B):
-    if USE_BLOCK_CHOLESKY:
-        if has_eigenpy:
-            # return eigen_cholesky(Bf.transpose() @ Bf)
-            return eigen_cholesky(B.transpose() @ B)
-        else:
-            Bf = B.astype(np.float64)
-            R = np.identity(B.shape[1], dtype=np.float64)
-            block_cholesky(Bf.transpose() @ Bf, R)
-            return R
-    else:
-        R = np.linalg.qr(B, mode='r')
-        for i in range(B.shape[1]):
-            if R[i, i] < 0:
-                # Negate this row.
-                R[i, i:] *= -1
-
-        return R
 
 
 def seysen_reduce(R, U):
@@ -171,26 +108,6 @@ def is_weakly_lll_reduced(R, delta=.99):
     return True
 
 
-def matrices_are_equal(A, B, epsilon=1e-6):
-    """
-    Return whether A and B are approximately equal, i.e.:
-
-        ||A-B||_{infty} <= epsilon.
-    """
-    result = (abs(A - B) <= epsilon).all()
-    if not result:
-        print('Matrix A:', A, 'Matrix B:', B, sep='\n')
-    return result
-
-
-def is_qr_of(B, R):
-    Rp = qr_decompose(B)
-    are_eq = matrices_are_equal(Rp, R, 0.1)
-    if not are_eq:
-        print("Difference matrix:", Rp - R, "Gram matrix R:", R.transpose() @ R, "Gram matrix R':", Rp.transpose() @ Rp, sep="\n")
-    return are_eq
-
-
 def seysen_lll(B, args):
     """
     :param B: a basis, consisting of *column vectors*.
@@ -215,20 +132,17 @@ def seysen_lll(B, args):
         t1 = perf_counter_ns()
 
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
-        R = qr_decompose(B_red)
+        R = np.linalg.qr(B_red, mode='r')
 
         t2 = perf_counter_ns()
 
         # Step 2: Call LLL concurrently on small blocks.
         offset = lll_size//2 if prof.num_iterations % 2 == 1 else 0
-        result = perform_lll_on_blocks(R, U, delta, offset, lll_size)
-        if not result:
-            print("An error occured in the C++ level. Aborting...")
-            exit(1)
+        perform_lll_on_blocks(R, U, delta, offset, lll_size)
 
         B_red = eigen_matmul(B, U)  # B @ U
         # LLL "destroys" the QR decomposition, so do it again.
-        R = qr_decompose(B_red)
+        R = np.linalg.qr(B_red, mode='r')
 
         t3 = perf_counter_ns()
 
