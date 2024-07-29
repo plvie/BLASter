@@ -52,40 +52,61 @@ class TimeProfile:
                 f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
 
 
-def seysen_reduce(R, U):
-    """
-    Seysen reduce a matrix R, recursive style, and store the result in U.
-    See: Algorithm 7 from [KEF21].
-    [KEF21] P. Kircher, T. Espitau, P.-A. Fouque. Towards faster
-    polynomial-time lattice reduction.
-    :param R: an upper-triangular matrix (having row vectors).
-    :param U: a unimodular transformation U such that RU is Seysen-Reduced.
-    :return: None! The result is stored in U.
-    """
-    n, m = len(R), len(R) // 2
-    # TODO: Write an iterative version that beats the recursive version.
+def seysen_reduce_iterative(R, U):
+    # Assume diag(U) = (1, 1, ..., 1).
+    n = len(R)
+    for i in range(0, n-1, 2):
+        U[i, i+1] = -round(R[i, i + 1] / R[i, i])
 
-    if n == 1:
-        # Base case
-        U[0, 0] = 1
-    elif n == 2:
-        # Make sure RU is size-reduced, i.e. |R00*X + R01| <= |R00|/2
-        U[0, 0] = U[1, 1] = 1
-        U[0, 1] = -round(R[0, 1] / R[0, 0])
-    else:
-        # TODO: Unroll loop for n == 3?
-        # R11, R12, R22 = R[:m, :m], R[:m, m:], R[m:, m:]
+    width, hwidth = 4, 2
+    while hwidth < n:
+        for i in range(0, n - hwidth, width):
+            # Reduce [i + hwidth, i + width) with respect to [i, i + hwidth)
+            j, k = i + hwidth, min(n, i + width)
 
-        seysen_reduce(R[:m, :m], U[:m, :m])
-        seysen_reduce(R[m:, m:], U[m:, m:])
+            # Perform matrix multiplication here using BLAS,
+            # since we use floating-point numbers.
+            S11 = R[i:j, i:j] @ U[i:j, i:j].astype(np.float64)
+            S12 = R[i:j, j:k] @ U[j:k, j:k].astype(np.float64)
 
-        S11 = R[:m, :m] @ U[:m, :m].astype(np.float64)
-        S12 = R[:m, m:] @ U[m:, m:].astype(np.float64)
+            # W = round(S11^{-1} S12).
+            W = np.rint(np.linalg.inv(S11) @ S12).astype(np.int64)
+            U[i:j, j:k] = eigen_matmul(np.ascontiguousarray(-U[i:j, i:j]), W)
+        width, hwidth = 2 * width, width
 
-        # W = round(S11^{-1} S12).
-        W = np.rint(np.linalg.inv(S11) @ S12).astype(np.int64)
-        # Now take the fractional part of the entries of W.
-        U[:m, m:] = eigen_matmul(np.ascontiguousarray(-U[:m, :m]), W)
+
+#def seysen_reduce(R, U):
+#    """
+#    Seysen reduce a matrix R, recursive style, and store the result in U.
+#    See: Algorithm 7 from [KEF21].
+#    [KEF21] P. Kircher, T. Espitau, P.-A. Fouque. Towards faster
+#    polynomial-time lattice reduction.
+#    :param R: an upper-triangular matrix (having row vectors).
+#    :param U: a unimodular transformation U such that RU is Seysen-Reduced.
+#    :return: None! The result is stored in U.
+#    """
+#    n, m = len(R), len(R) // 2
+#    # TODO: Write an iterative version that beats the recursive version.
+#
+#    if n == 1:
+#        # Base case
+#        U[0, 0] = 1
+#    elif n == 2:
+#        # Make sure RU is size-reduced, i.e. |R00*X + R01| <= |R00|/2
+#        U[0, 0] = U[1, 1] = 1
+#        U[0, 1] = -round(R[0, 1] / R[0, 0])
+#    else:
+#        # R11, R12, R22 = R[:m, :m], R[:m, m:], R[m:, m:]
+#        seysen_reduce(R[:m, :m], U[:m, :m])
+#        seysen_reduce(R[m:, m:], U[m:, m:])
+#
+#        S11 = R[:m, :m] @ U[:m, :m].astype(np.float64)
+#        S12 = R[:m, m:] @ U[m:, m:].astype(np.float64)
+#
+#        # W = round(S11^{-1} S12).
+#        W = np.rint(np.linalg.inv(S11) @ S12).astype(np.int64)
+#        # Now take the fractional part of the entries of W.
+#        U[:m, m:] = eigen_matmul(np.ascontiguousarray(-U[:m, :m]), W)
 
 
 def is_weakly_lll_reduced(R, delta=.99):
@@ -148,7 +169,7 @@ def seysen_lll(B, args):
 
         # Step 3: Seysen reduce the upper-triangular matrix R.
         with np.errstate(all='raise'), threadpool_limits(limits=1):
-            seysen_reduce(R, U_seysen)
+            seysen_reduce_iterative(R, U_seysen)
 
         t4 = perf_counter_ns()
 

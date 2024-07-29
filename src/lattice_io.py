@@ -33,7 +33,7 @@ def read_matrix(input_file, verbose=False, reverse=True):
     if reverse:
         data.reverse()
     # Use column vectors.
-    return np.array(data, dtype=np.int64).transpose()
+    return np.ascontiguousarray(np.array(data, dtype=np.int64).transpose())
 
 
 def write_matrix(output_file, basis):

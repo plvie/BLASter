@@ -30,7 +30,7 @@ def gh(dim):
 
 def get_profile(B):
     """
-    Returns the profile of a basis, i.e. log ||b_i*|| for i=1, ..., n.
+    Return the profile of a basis, i.e. log ||b_i*|| for i=1, ..., n.
     :param B: basis for a lattice
     """
     return [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
@@ -79,30 +79,26 @@ def __main__():
 
     # LLL block size
     parser.add_argument(
-            '--LLL', '-L', type=int, default=1,
+            '--LLL', '-L', type=int, default=16,
             help='Size of blocks on which to call LLL locally')
 
     args = parser.parse_args()
-    assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value given for delta!'
+    assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'
+    assert args.LLL >= 2, 'LLL block size must be at least 2!'
 
-    if args.LLL == 1 and args.verbose:
-        print('Note: LLL block size is <=2. '
-              'Tip: Add `--LLL <blocksize>` to run LLL locally, '
-              'which usually provides a speed up.', file=stderr)
-
-    B = np.ascontiguousarray(read_matrix(args.input, args.verbose))
+    B = read_matrix(args.input, args.verbose)
     n = len(B)
 
     # Assumption: B is a q-ary lattice.
     q = B[-1, 0] if all(B[:-1, 0] == 0) else B[-1, -1]
 
-    # Assume a RHF of ~1.02
-    log_slope = log(1.02)  # -log(args.delta - 0.25)
-    log_det = sum(get_profile(B))
-    expected_shortest = exp(log_slope * (n-1) + log_det / n)
     if args.verbose:
-        cmp = "<" if expected_shortest < q else ">="
-        print(f'E[∥b₁∥] ~ {expected_shortest:.2f} {cmp} {int(q):d} ',
+        # Assume a RHF of ~1.02
+        log_slope = log(1.02)  # -log(args.delta - 0.25)
+        log_det = sum(get_profile(B))
+        norm_b1 = exp(log_slope * (n-1) + log_det / n)
+        cmp = "<" if norm_b1 < q else ">="
+        print(f'E[∥b₁∥] ~ {norm_b1:.2f} {cmp} {int(q):d} ',
               f'(GH: λ₁ ~ {gh(n) * exp(log_det/n):.2f})',
               file=stderr)
 
@@ -112,8 +108,8 @@ def __main__():
 
     # Write B_red to the output file
     print_mat = args.output is not None
-    if print_mat and args.input is not None and args.output == args.input:
-        print_mat = input('WARNING: input & output files are same!\n Continue? (y/n)?') == 'y'
+    if print_mat and args.output == args.input:
+        print_mat = input('WARNING: input & output files are same!\nContinue? (y/n) ') == 'y'
     if print_mat:
         write_matrix(args.output, B_red)
     elif not args.quiet:
@@ -127,11 +123,13 @@ def __main__():
     if args.profile:
         prof = get_profile(B_red)
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']',
-              f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}', sep='\n', file=stderr)
+              file=stderr)
+        print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}',
+              file=stderr)
 
     assert (B @ U == B_red).all()
 
-###############################################################################
+
 if __name__ == '__main__':
     np.set_printoptions(linewidth=1000, threshold=2147483647, suppress=True)
     __main__()
