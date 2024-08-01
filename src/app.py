@@ -5,7 +5,7 @@ lattice with quality similar to what LLL achieves.
 """
 
 import argparse
-from math import exp, gamma, log, pi, prod
+from math import exp, gamma, log, pi
 from multiprocessing import cpu_count
 from sys import stderr
 from threadpoolctl import threadpool_limits
@@ -122,10 +122,8 @@ def __main__():
     # Print profile
     if args.profile:
         prof = get_profile(B_red)
-        print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']',
-              file=stderr)
-        print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}',
-              file=stderr)
+        print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']', file=stderr)
+        print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}', file=stderr)
 
     assert (B @ U == B_red).all()
 

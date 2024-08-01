@@ -5,8 +5,8 @@ LLL reduction with Seysen instead of size reduction.
 from math import log
 from sys import stderr
 from time import perf_counter_ns
+
 import numpy as np
-from threadpoolctl import threadpool_limits
 
 from seysen_lll import perform_lll_on_blocks, eigen_init, eigen_matmul, eigen_right_matmul
 
@@ -47,10 +47,19 @@ def float_matmul(A, B):
 
 
 def seysen_reduce_iterative(R, U):
+    """
+    Perform Seysen reduction on a matrix R, while keeping track of the transformation matrix U.
+    The matrix R is updated along the way.
+
+    :param R: an upper-triangular matrix that will be modified
+    :param U: an upper-triangular transformation matrix such that diag(U) = (1, 1, ..., 1).
+    :return: Nothing! After termination, R is Seysen reduced.
+    """
     # Assume diag(U) = (1, 1, ..., 1).
     n = len(R)
     for i in range(0, n-1, 2):
-        U[i, i+1] = -round(R[i, i + 1] / R[i, i])
+        U[i, i + 1] = -round(R[i, i + 1] / R[i, i])
+        R[i, i + 1] += R[i, i] * U[i, i + 1]
 
     width, hwidth = 4, 2
     while hwidth < n:
@@ -58,14 +67,15 @@ def seysen_reduce_iterative(R, U):
             # Reduce [i + hwidth, i + width) with respect to [i, i + hwidth)
             j, k = i + hwidth, min(n, i + width)
 
-            # Perform matrix multiplication here using BLAS,
-            # since we use floating-point numbers.
-            S11 = float_matmul(R[i:j, i:j], U[i:j, i:j].astype(np.float64))
-            S12 = float_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
+            # S11 = R11 @ U11, S12' = R12 @ U22, S22 = R22 @ U22.
+            R[i:j, j:k] = float_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
+            # W = round(S11^{-1} S12').
+            W = np.rint(float_matmul(np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
 
-            # W = round(S11^{-1} S12).
-            W = np.rint(float_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
-            U[i:j, j:k] = eigen_matmul(np.ascontiguousarray(-U[i:j, i:j]), W)
+            # U12 = U11 @ W
+            U[i:j, j:k] = eigen_matmul(np.ascontiguousarray(-U[i:j, i:j]), W.astype(np.int64))
+            # S12 = S12' - S11 @ W.
+            R[i:j, j:k] -= float_matmul(R[i:j, i:j], W.astype(np.float64))
         width, hwidth = 2 * width, width
 
 
@@ -163,26 +173,21 @@ def seysen_lll(B, args):
 
         # Step 5: Seysen reduce the upper-triangular matrix R.
         t5 = perf_counter_ns()
-        with np.errstate(all='raise'), threadpool_limits(limits=1):
+        with np.errstate(all='raise'):
             seysen_reduce_iterative(R, U_seysen)
 
-        # Step 6: Check if basis is weakly-LLL reduced.
+        # Step 6: Update B_red and U with transformation from Seysen.
         t6 = perf_counter_ns()
-        # Note: this step is negligible compared to the rest.
-        is_reduced = is_weakly_lll_reduced(float_matmul(R, U_seysen), delta)
-
-        # Step 7: Update B_red and U with transformation from Seysen.
         with np.errstate(all='raise'):
             eigen_right_matmul(U, U_seysen)
             eigen_right_matmul(B_red, U_seysen)
 
         t7 = perf_counter_ns()
 
-        prof.tick(t2 - t1 + t5 - t4,
-                  t3 - t2,
-                  t6 - t5,
-                  t4 - t3 + t7 - t6)
+        prof.tick(t2 - t1 + t5 - t4, t3 - t2, t6 - t5, t4 - t3 + t7 - t6)
         if verbose:
-            print('.', end='', file=stderr)
-            stderr.flush()
+            print('.', end='', file=stderr, flush=True)
+
+        # Step 7: Check whether the basis is weakly-LLL reduced.
+        is_reduced = is_weakly_lll_reduced(R, delta)
     return U, B_red, prof
