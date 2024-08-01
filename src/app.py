@@ -79,7 +79,7 @@ def __main__():
 
     # LLL block size
     parser.add_argument(
-            '--LLL', '-L', type=int, default=16,
+            '--LLL', '-L', type=int, default=64,
             help='Size of blocks on which to call LLL locally')
 
     args = parser.parse_args()
