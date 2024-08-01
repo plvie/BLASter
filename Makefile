@@ -6,8 +6,8 @@
 all: cython
 
 clean:
-	python setup.py clean
+	python3 setup.py clean
 	rm src/seysen_lll.cpp src/seysen_lll.html
 
 cython:
-	python setup.py build_ext --inplace
+	python3 setup.py build_ext --inplace
