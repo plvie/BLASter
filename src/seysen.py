@@ -2,19 +2,13 @@
 LLL reduction with Seysen instead of size reduction.
 """
 
-from math import sqrt, log
+from math import log
 from sys import stderr
 from time import perf_counter_ns
 import numpy as np
 from threadpoolctl import threadpool_limits
 
 from seysen_lll import perform_lll_on_blocks, eigen_init, eigen_matmul, eigen_right_matmul
-
-
-def potential(B):
-    profile = [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
-    n = len(profile)
-    return sum((n - i) * profile[i] for i in range(n))
 
 
 class TimeProfile:
@@ -26,23 +20,12 @@ class TimeProfile:
         self.num_iterations = 0
         self.time_qr = self.time_lll = self.time_seysen = self.time_matmul = 0
 
-    @classmethod
-    def iteration(cls, t1, t2, t3, t4, t5):
-        prof = cls()
-        prof.num_iterations = 1
-        prof.time_qr = t2 - t1
-        prof.time_lll = t3 - t2
-        prof.time_seysen = t4 - t3
-        prof.time_matmul = t5 - t4
-        return prof
-
-    def __iadd__(self, other):
-        self.num_iterations += other.num_iterations
-        self.time_qr += other.time_qr
-        self.time_lll += other.time_lll
-        self.time_seysen += other.time_seysen
-        self.time_matmul += other.time_matmul
-        return self
+    def tick(self, t_qr, t_lll, t_seysen, t_matmul):
+        self.num_iterations += 1
+        self.time_qr += t_qr
+        self.time_lll += t_lll
+        self.time_seysen += t_seysen
+        self.time_matmul += t_matmul
 
     def __str__(self):
         return (f"Iterations: {self.num_iterations}\n"
@@ -50,6 +33,17 @@ class TimeProfile:
                 f"Time LLL    reduction: {self.time_lll:18,d} ns\n"
                 f"Time Seysen reduction: {self.time_seysen:18,d} ns\n"
                 f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
+
+
+def potential(B):
+    profile = [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
+    n = len(profile)
+    return sum((n - i) * profile[i] for i in range(n))
+
+
+def float_matmul(A, B):
+    # Note: NumPy uses BLAS to multiply floating-point matrices.
+    return A @ B
 
 
 def seysen_reduce_iterative(R, U):
@@ -66,16 +60,16 @@ def seysen_reduce_iterative(R, U):
 
             # Perform matrix multiplication here using BLAS,
             # since we use floating-point numbers.
-            S11 = R[i:j, i:j] @ U[i:j, i:j].astype(np.float64)
-            S12 = R[i:j, j:k] @ U[j:k, j:k].astype(np.float64)
+            S11 = float_matmul(R[i:j, i:j], U[i:j, i:j].astype(np.float64))
+            S12 = float_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
 
             # W = round(S11^{-1} S12).
-            W = np.rint(np.linalg.inv(S11) @ S12).astype(np.int64)
+            W = np.rint(float_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
             U[i:j, j:k] = eigen_matmul(np.ascontiguousarray(-U[i:j, i:j]), W)
         width, hwidth = 2 * width, width
 
 
-#def seysen_reduce(R, U):
+# def seysen_reduce(R, U):
 #    """
 #    Seysen reduce a matrix R, recursive style, and store the result in U.
 #    See: Algorithm 7 from [KEF21].
@@ -100,11 +94,11 @@ def seysen_reduce_iterative(R, U):
 #        seysen_reduce(R[:m, :m], U[:m, :m])
 #        seysen_reduce(R[m:, m:], U[m:, m:])
 #
-#        S11 = R[:m, :m] @ U[:m, :m].astype(np.float64)
-#        S12 = R[:m, m:] @ U[m:, m:].astype(np.float64)
+#        S11 = float_matmul(R[:m, :m], U[:m, :m].astype(np.float64))
+#        S12 = float_matmul(R[:m, m:], U[m:, m:].astype(np.float64))
 #
 #        # W = round(S11^{-1} S12).
-#        W = np.rint(np.linalg.inv(S11) @ S12).astype(np.int64)
+#        W = np.rint(float_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
 #        # Now take the fractional part of the entries of W.
 #        U[:m, m:] = eigen_matmul(np.ascontiguousarray(-U[:m, :m]), W)
 
@@ -118,14 +112,13 @@ def is_weakly_lll_reduced(R, delta=.99):
     """
     n = len(R)
     for pos in range(0, n - 1):
-        # vector b0 = (u, 0)
+        # vectors are b0 = (u, 0), b1 = (v, w).
         u = abs(R[pos, pos])
-        # vector b1 = (v, w)
         v, w = R[pos, pos + 1], R[pos + 1, pos + 1]
         v_mod = ((v + u/2) % u) - u/2
 
         if v_mod**2 + w**2 <= delta * u**2:
-            return False
+            return False  # ||b1||^2 <= delta ||b0||^2
     return True
 
 
@@ -142,7 +135,8 @@ def seysen_lll(B, args):
         profile: TimeProfile object.
     """
     n, is_reduced, prof = B.shape[1], False, TimeProfile()
-    delta, cores, lll_size = args.delta, args.cores, min(max(2, args.LLL), n)
+    delta, cores, verbose = args.delta, args.cores, args.verbose
+    lll_size = min(max(2, args.LLL), n)
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
@@ -150,42 +144,45 @@ def seysen_lll(B, args):
     eigen_init(cores)
 
     while not is_reduced:
-        t1 = perf_counter_ns()
-
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
+        t1 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
 
-        t2 = perf_counter_ns()
-
         # Step 2: Call LLL concurrently on small blocks.
+        t2 = perf_counter_ns()
         offset = lll_size//2 if prof.num_iterations % 2 == 1 else 0
         perform_lll_on_blocks(R, U, delta, offset, lll_size)
 
-        B_red = eigen_matmul(B, U)  # B @ U
-        # LLL "destroys" the QR decomposition, so do it again.
+        # Step 3: QR-decompose againn because LLL "destroys" the QR decomposition.
+        t3 = perf_counter_ns()
+        B_red = eigen_matmul(B, U)
+
+        # Step 4: QR-decompose againn because LLL "destroys" the QR decomposition.
+        t4 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
 
-        t3 = perf_counter_ns()
-
-        # Step 3: Seysen reduce the upper-triangular matrix R.
+        # Step 5: Seysen reduce the upper-triangular matrix R.
+        t5 = perf_counter_ns()
         with np.errstate(all='raise'), threadpool_limits(limits=1):
             seysen_reduce_iterative(R, U_seysen)
 
-        t4 = perf_counter_ns()
-
-        # Step 4: If possible, perform Lagrange reduction on disjoint pairwise basis vectors.
+        # Step 6: Check if basis is weakly-LLL reduced.
+        t6 = perf_counter_ns()
         # Note: this step is negligible compared to the rest.
-        # Note: we multiply R and U_seysen using BLAS in numpy.
-        is_reduced = is_weakly_lll_reduced(R @ U_seysen, delta)
+        is_reduced = is_weakly_lll_reduced(float_matmul(R, U_seysen), delta)
 
-        # Step 5: Update matrices with the transformation matrices from Step 3 & 4.
+        # Step 7: Update B_red and U with transformation from Seysen.
         with np.errstate(all='raise'):
             eigen_right_matmul(U, U_seysen)
             eigen_right_matmul(B_red, U_seysen)
 
-        t5 = perf_counter_ns()
+        t7 = perf_counter_ns()
 
-        prof += TimeProfile.iteration(t1, t2, t3, t4, t5)
-        print('.', end='', file=stderr)
-        stderr.flush()
+        prof.tick(t2 - t1 + t5 - t4,
+                  t3 - t2,
+                  t6 - t5,
+                  t4 - t3 + t7 - t6)
+        if verbose:
+            print('.', end='', file=stderr)
+            stderr.flush()
     return U, B_red, prof
