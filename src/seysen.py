@@ -161,30 +161,27 @@ def seysen_lll(B, args):
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
         offset = lll_size//2 if prof.num_iterations % 2 == 1 else 0
-        perform_lll_on_blocks(R, U, delta, offset, lll_size)
+        perform_lll_on_blocks(R, B_red, U, delta, offset, lll_size)
 
-        # Step 3: QR-decompose againn because LLL "destroys" the QR decomposition.
+        # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
+        # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
-        B_red = eigen_matmul(B, U)
-
-        # Step 4: QR-decompose againn because LLL "destroys" the QR decomposition.
-        t4 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
 
-        # Step 5: Seysen reduce the upper-triangular matrix R.
-        t5 = perf_counter_ns()
+        # Step 4: Seysen reduce the upper-triangular matrix R.
+        t4 = perf_counter_ns()
         with np.errstate(all='raise'):
             seysen_reduce_iterative(R, U_seysen)
 
-        # Step 6: Update B_red and U with transformation from Seysen.
-        t6 = perf_counter_ns()
+        # Step 5: Update B_red and U with transformation from Seysen.
+        t5 = perf_counter_ns()
         with np.errstate(all='raise'):
             eigen_right_matmul(U, U_seysen)
             eigen_right_matmul(B_red, U_seysen)
 
-        t7 = perf_counter_ns()
+        t6 = perf_counter_ns()
 
-        prof.tick(t2 - t1 + t5 - t4, t3 - t2, t6 - t5, t4 - t3 + t7 - t6)
+        prof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
         if verbose:
             print('.', end='', file=stderr, flush=True)
 

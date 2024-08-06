@@ -3,7 +3,6 @@
 # Taken from:
 # http://docs.cython.org/en/latest/src/tutorial/numpy.html#adding-types
 
-
 import numpy as np
 # "cimport" is used to import special compile-time information
 # about the numpy module (this is stored in a file numpy.pxd which is
@@ -16,7 +15,7 @@ cimport cython
 from cython.parallel cimport prange
 
 from block_lll cimport FT, ZZ, lll_reduce
-from eigen_matmul cimport eigen_init as _eigen_init, eigen_matmul as _eigen_matmul, eigen_right_matmul as _eigen_right_matmul
+from eigen_matmul cimport eigen_init as _eigen_init, eigen_matmul as _eigen_matmul, eigen_right_matmul as _eigen_right_matmul, eigen_right_matmul_strided as _eigen_right_matmul_strided
 
 # It's necessary to call "import_array" if you use any part of the
 # numpy PyArray_* API. From Cython 3, accessing attributes like
@@ -41,6 +40,7 @@ ctypedef cnp.float64_t DTYPE_FT_t
 @cython.wraparound(False)
 def perform_lll_on_blocks(
         cnp.ndarray[DTYPE_FT_t, ndim=2] R,
+        cnp.ndarray[DTYPE_ZZ_t, ndim=2] B_red,
         cnp.ndarray[DTYPE_ZZ_t, ndim=2] U,
         FT delta,
         int offset,
@@ -48,9 +48,7 @@ def perform_lll_on_blocks(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int idx, i, j, k, w
-    cdef n_blocks = (n - offset + block_size - 1) // block_size
-    cdef FT[:, ::1] R_sub = np.empty(shape=(block_size, n), dtype=DTYPE_FT)
+    cdef int i, w
     cdef ZZ[:, ::1] U_sub = np.zeros(shape=(block_size, n), dtype=DTYPE_ZZ)
 
     # Check that these are of the correct type:
@@ -58,18 +56,15 @@ def perform_lll_on_blocks(
 
     for i in prange(offset, n, block_size, nogil=True):
         w = min(n - i, block_size)
-        for j in range(w):
-            for k in range(i, i + w):
-                R_sub[j, k] = R[i + j, k]
-    for i in prange(offset, n, block_size, nogil=True):
-        w = min(n - i, block_size)
-        lll_reduce(w, &R_sub[0, i], &U_sub[0, i], delta, n)
 
-    # TODO: Make the part of U that needs transforming continuous,
-    # such that the matrix multiplication can be done in parallel:
-    for i in range(offset, n, block_size):
-        j = min(n, i + block_size)
-        U[:, i:j] = U[:, i:j] @ np.asarray(U_sub)[0:j - i, i:j]
+        # Step 1: run LLL on block [i, i + w).
+        lll_reduce(w, &R[i, i], &U_sub[0, i], delta, n)
+
+        # Step 2: Update U and B_red by multipling with U_sub[0:w, i:i+w].
+        # U[:, i:i+w] = U[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
+        # B_red[:, i:i+w] = B_red[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
 
 
 @cython.boundscheck(False)
@@ -89,9 +84,10 @@ def eigen_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[DTYPE_
 @cython.wraparound(False)
 def eigen_right_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] B) -> None:
     cdef int n = A.shape[0]
-    assert A.shape[1] == n and B.shape[0] == n and B.shape[1] == n, "Dimension mismatch"
+    cdef int m = A.shape[1]
+    assert B.shape[0] == m and B.shape[1] == m, "Dimension mismatch"
 
-    _eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n)
+    _eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n, m)
 
 
 def eigen_init(int num_cores=0):
