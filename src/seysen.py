@@ -67,14 +67,14 @@ def seysen_reduce_iterative(R, U):
             # Reduce [i + hwidth, i + width) with respect to [i, i + hwidth)
             j, k = i + hwidth, min(n, i + width)
 
-            # S11 = R11 @ U11, S12' = R12 @ U22, S22 = R22 @ U22.
+            # S11 = R11 · U11, S12' = R12 · U22, S22 = R22 · U22.
             R[i:j, j:k] = float_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
             # W = round(S11^{-1} S12').
             W = np.rint(float_matmul(np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
 
-            # U12 = U11 @ W
+            # U12 = U11 · W
             U[i:j, j:k] = eigen_matmul(np.ascontiguousarray(-U[i:j, i:j]), W.astype(np.int64))
-            # S12 = S12' - S11 @ W.
+            # S12 = S12' - S11 · W.
             R[i:j, j:k] -= float_matmul(R[i:j, i:j], W.astype(np.float64))
         width, hwidth = 2 * width, width
 
@@ -139,9 +139,9 @@ def seysen_lll(B, args):
         - delta: delta factor for Lagrange reduction,
         - cores: number of cores to use, and
         - LLL:   the block-size for LLL.
-    :return: tuple (U, B @ U, profile) where:
-        U: the transformation matrix such that B @ U is LLL reduced,
-        B @ U: an LLL-reduced basis,
+    :return: tuple (U, B · U, profile) where:
+        U: the transformation matrix such that B · U is LLL reduced,
+        B · U: an LLL-reduced basis,
         profile: TimeProfile object.
     """
     n, is_reduced, prof = B.shape[1], False, TimeProfile()
