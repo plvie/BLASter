@@ -115,7 +115,7 @@ def seysen_reduce_iterative(R, U):
 
 def is_weakly_lll_reduced(R, delta=.99):
     """
-    Return whether R is Weakly-LLL reduced
+    Return whether R is Weakly-LLL-reduced
     :param R: upper-triangular matrix
     :param delta: delta-factor used in the Lovasz condition
     :return: bool
@@ -130,6 +130,25 @@ def is_weakly_lll_reduced(R, delta=.99):
         if v_mod**2 + w**2 <= delta * u**2:
             return False  # ||b1||^2 <= delta ||b0||^2
     return True
+
+
+def is_size_reduced(R):
+    """
+    Return whether R is size-reduced.
+    :param R: upper-triangular matrix
+    :return: bool
+    """
+    return all(max(abs(R[i, i + 1:])) <= abs(R[i, i]) / 2 for i in range(len(R) - 1))
+
+
+def is_lll_reduced(R, delta=.99):
+    """
+    Return whether R is LLL-reduced
+    :param R: upper-triangular matrix
+    :param delta: delta-factor used in the Lovasz condition
+    :return: bool
+    """
+    return is_weakly_lll_reduced(R, delta) and is_size_reduced(R)
 
 
 def seysen_lll(B, args):
@@ -167,6 +186,12 @@ def seysen_lll(B, args):
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
+
+        if verbose:
+            for i in range(offset, n, lll_size):
+                w = min(n - i, lll_size)
+                # Check whether R_[i:i+w) is really LLL-reduced.
+                assert is_lll_reduced(R[i:i+w, i:i+w], delta)
 
         # Step 4: Seysen reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()

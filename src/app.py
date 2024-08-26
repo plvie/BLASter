@@ -125,6 +125,7 @@ def __main__():
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']', file=stderr)
         print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}', file=stderr)
 
+    # Assert that applying U on the basis B indeed gives the reduced basis B_red.
     assert (B @ U == B_red).all()
 
 
