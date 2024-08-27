@@ -33,10 +33,13 @@ compile_args = [
 
 extensions = [Extension(
     name="seysen_lll",
-    sources=["src/seysen_lll.pyx"],
+    sources=["core/seysen_lll.pyx"],
     include_dirs=include_dirs,
     extra_compile_args=compile_args,
     extra_link_args=[openmp_arg],
 )]
 
-setup(ext_modules=cythonize(extensions, language_level="3", build_dir='build/cpp'))
+setup(
+    ext_modules=cythonize(extensions, language_level="3", build_dir='build/cpp'),
+    options={'build': {'build_lib': 'src/'}},
+)
