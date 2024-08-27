@@ -1,23 +1,26 @@
-#include<algorithm>
-#include<cmath>
-#include<cstdio>
+#include<algorithm> // std::swap
+#include<cmath> // llround, sqrt
 
 // floating-point type
 typedef double FT;
+
 // integer type
 typedef long long ZZ;
 
+
 extern "C" {
 	void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride);
+	void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta,
+			const size_t row_stride, int depth);
 }
 
-
-#define SQ(x) ((x) * (x))
 
 /*
  * Helper functions to access the matrices R and U at row 'row' and column 'col'
  */
 #define RR(row, col) R[(row) * row_stride + (col)]
+#define RSQ(row, col) (RR(row, col) * RR(row, col))
+
 #define UU(row, col) U[(row) * row_stride + (col)]
 
 /*
@@ -101,7 +104,7 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stri
 		}
 
 		// 2. Check ||pi(b_k)||^2 > \delta ||pi(b_{k - 1})||^2.
-		if (SQ(RR(k - 1, k)) + SQ(RR(k, k)) > delta * SQ(RR(k - 1, k - 1))) {
+		if (RSQ(k - 1, k) + RSQ(k, k) > delta * RSQ(k - 1, k - 1)) {
 			// pi(b_{k - 1}), pi(b_k) is Lagrange reduced, so move on.
 			// Already Lagrange reduced, move on.
 			k++;
@@ -147,26 +150,15 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta,
 		// 2. Determine ||pi_i(b_k)||^2
 		FT proj_norm_sq = 0.0;
 		for (i = k; i >= 0 && i >= k - depth; i--) {
-			proj_norm_sq += SQ(RR(i, k));
+			proj_norm_sq += RSQ(i, k);
 		}
-		// Currently i < 0 or i < k-depth.
-		// Thus, increment i by 1 to satisfy again: i >= 0 and i >= k - depth.
+		// Increment i by 1 to satisfy again: i >= 0 and i >= k - depth.
 		++i;
-
-		/* printf("DeepLLL(%d) is at %d / %d.\n", depth, k, N);
-		for (int x = 0; x < N; x++) {
-			for (int y = 0; y < N; y++)
-				printf("%.2f ", RR(x, y));
-			printf("\n");
-		}
- */
 
 		bool swap_performed = false;
 		// 3. Look for the smallest i < k such that ||pi_i(b_k)||^2 < delta ||b_i*||^2.
 		while (i < k) {
-			if (proj_norm_sq <= delta * SQ(RR(i, i))) {
-				/* printf("Swapping %d and %d results in reduction of ||b_i*||^2: %.2f -> %.2f\n",
-						i, k, SQ(RR(i, i)), proj_norm_sq); */
+			if (proj_norm_sq <= delta * RSQ(i, i)) {
 				// 3a. Swap b_i and b_k.
 				// Complexity: O(N * depth)
 				while (k > i) {
@@ -177,7 +169,7 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta,
 				break;
 			} else {
 				// 3b. Increment i and update ||pi_i(b_k)||^2.
-				proj_norm_sq -= SQ(RR(i, k));
+				proj_norm_sq -= RSQ(i, k);
 				i++;
 			}
 		}
