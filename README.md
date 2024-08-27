@@ -7,6 +7,10 @@ SeysenLLL: Lattice reduction à la LLL but using Seysen's reduction technique in
 - python3
 - libeigen3-dev
 
+Optional:
+
+- fplll (for generating q-ary lattices with the `latticegen` command)
+
 ## Running
 
 - Run `make` to compile all the Cython.
