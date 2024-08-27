@@ -14,14 +14,6 @@ Optional:
 ## Running
 
 - Run `make` to compile all the Cython.
-- Now symlink (or move) the object file to the source directory.
-    This depends on your OS.
-    On Linux with Cython 3.11, you may have a file named `seysen_lll.cpython-311-x86_64-linux-gnu.so`.
-    Then run the following to create the mandatory link:
-    ```bash
-    cd src
-    ln -s ../seysen_lll.cpython-311-x86_64-linux-gnu.so seysen_lll.cpython-311-x86_64-linux-gnu.so
-    ```
 - Run the command by e.g. typing `src/app.py -pvi INPUTFILE`.
 
 
