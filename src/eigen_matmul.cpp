@@ -12,7 +12,7 @@ typedef Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic> DynStride;
  * Relevant reference:
  * https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
  */
-void eigen_matmul(const long long *a, const long long *b, long long *c, int n, int m, int k) {
+void _eigen_matmul(const long long *a, const long long *b, long long *c, int n, int m, int k) {
 	Eigen::Map<const MatrixXZZ> ma(a, n, m);
 	Eigen::Map<const MatrixXZZ> mb(b, m, k);
 	Eigen::Map<MatrixXZZ> mc(c, n, k);
@@ -27,7 +27,7 @@ void eigen_matmul(const long long *a, const long long *b, long long *c, int n, i
  * Relevant reference:
  * https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
  */
-void eigen_right_matmul(long long *a, const long long *b, int n, int m) {
+void _eigen_right_matmul(long long *a, const long long *b, int n, int m) {
 	Eigen::Map<MatrixXZZ> ma(a, n, m);
 	Eigen::Map<const MatrixXZZ> mb(b, m, m);
 
@@ -35,7 +35,7 @@ void eigen_right_matmul(long long *a, const long long *b, int n, int m) {
 }
 
 
-void eigen_right_matmul_strided(long long *a, const long long *b, int n, int m, int stride_a, int stride_b) {
+void _eigen_right_matmul_strided(long long *a, const long long *b, int n, int m, int stride_a, int stride_b) {
 	Eigen::Map<MatrixXZZ, Eigen::Unaligned, DynStride> ma(a, n, m, DynStride(stride_a, 1));
 	Eigen::Map<const MatrixXZZ, Eigen::Unaligned, DynStride> mb(b, m, m, DynStride(stride_b, 1));
 
@@ -43,7 +43,7 @@ void eigen_right_matmul_strided(long long *a, const long long *b, int n, int m, 
 }
 
 
-void eigen_init(int num_cores) {
+void _eigen_init(int num_cores) {
 	Eigen::initParallel();
 
 	if (num_cores > 0) {

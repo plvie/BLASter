@@ -14,8 +14,24 @@ cimport numpy as cnp
 cimport cython
 from cython.parallel cimport prange
 
-from block_lll cimport FT, ZZ, lll_reduce
-from eigen_matmul cimport eigen_init as _eigen_init, eigen_matmul as _eigen_matmul, eigen_right_matmul as _eigen_right_matmul, eigen_right_matmul_strided as _eigen_right_matmul_strided
+
+# floating-point type
+ctypedef double FT
+
+# integer type
+ctypedef long long ZZ
+
+
+cdef extern from "block_lll.cpp":
+    void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride) noexcept nogil
+
+
+cdef extern from "eigen_matmul.cpp":
+    void _eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k) noexcept nogil
+    void _eigen_right_matmul(ZZ *a, const ZZ *b, int n, int m) noexcept nogil
+    void _eigen_right_matmul_strided(ZZ *a, const ZZ *b, int n, int m, int stride_a, int stride_b) noexcept nogil
+    void _eigen_init(int num_cores) noexcept nogil
+
 
 # It's necessary to call "import_array" if you use any part of the
 # numpy PyArray_* API. From Cython 3, accessing attributes like
@@ -70,9 +86,7 @@ def perform_lll_on_blocks(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def eigen_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] B) -> cnp.ndarray[DTYPE_ZZ_t]:
-    cdef int n = A.shape[0]
-    cdef int m = A.shape[1]
-    cdef int k = B.shape[1]
+    cdef int n = A.shape[0], m = A.shape[1], k = B.shape[1]
     assert B.shape[0] == m, "Dimension mismatch"
     cdef ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=DTYPE_ZZ)
 
@@ -83,8 +97,7 @@ def eigen_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[DTYPE_
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def eigen_right_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] B) -> None:
-    cdef int n = A.shape[0]
-    cdef int m = A.shape[1]
+    cdef int n = A.shape[0], m = A.shape[1]
     assert B.shape[0] == m and B.shape[1] == m, "Dimension mismatch"
 
     _eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n, m)

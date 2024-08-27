@@ -12,12 +12,14 @@ if platform.startswith("win"):
 else:
     openmp_arg = '-fopenmp'
 
-# Look for the Eigen library in `/usr/include` and `~/.local/include`.
 include_dirs = [np.get_include()]
+
+# Look for the Eigen library in `/usr/include` and `~/.local/include`.
 for f in [Path('/usr/include/eigen3'), Path.home().joinpath('.local/include/eigen3')]:
     if f.exists() and f.is_dir():
         include_dirs += [str(f)]
-if not include_dirs:
+        break
+else:
     print("ERROR: seysen_lll requires the Eigen3 library!")
     exit(1)
 
@@ -37,4 +39,4 @@ extensions = [Extension(
     extra_link_args=[openmp_arg],
 )]
 
-setup(ext_modules=cythonize(extensions, language_level="3", annotate=True))
+setup(ext_modules=cythonize(extensions, language_level="3", build_dir='build/cpp'))
