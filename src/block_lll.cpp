@@ -11,13 +11,20 @@ extern "C" {
 	void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride);
 }
 
+
 #define SQ(x) ((x) * (x))
+
+/*
+ * Helper functions to access the matrices R and U at row 'row' and column 'col'
+ */
 #define RR(row, col) R[(row) * row_stride + (col)]
 #define UU(row, col) U[(row) * row_stride + (col)]
 
 /*
- * Applies size reduction to column j with respect to column i, and updates the
- * R-factor and transformation matrix U accordingly.
+ * Applies size reduction to column j with respect to column i, and updates the R-factor and
+ * transformation matrix U accordingly.
+ *
+ * Complexity: O(N)
  */
 inline
 void size_reduce(const int N, FT *R, ZZ *U, size_t row_stride, int i, int j)
@@ -29,6 +36,7 @@ void size_reduce(const int N, FT *R, ZZ *U, size_t row_stride, int i, int j)
 	for (int k = 0; k <= i; k++) {
 		RR(k, j) -= quotient * RR(k, i);
 	}
+
 	// U_i -= quotient * U_i.
 	for (int k = 0; k < N; k++) {
 		UU(k, j) -= quotient * UU(k, i);
@@ -36,7 +44,47 @@ void size_reduce(const int N, FT *R, ZZ *U, size_t row_stride, int i, int j)
 }
 
 /*
+ * Swaps the adjacent basis vectors b_k and b_{k+1} and updates the R-factor and transformation
+ * matrix U correspondingly. R is updated by performing a Givens rotation.
+ *
+ * Complexity: O(N)
+ */
+inline
+void swap_basis_vectors(const int N, FT *R, ZZ *U, const size_t row_stride, const int k)
+{
+	// a. Perform Givens rotation on coordinates {k, k+1}, and update R.
+	FT c = RR(k, k + 1), s = RR(k + 1, k + 1), norm = sqrt(c * c + s * s);
+	c /= norm;
+	s /= norm;
+
+	RR(k, k + 1) = c * RR(k, k);
+	RR(k + 1, k + 1) = s * RR(k, k);
+	RR(k, k) = norm;
+
+	for (int i = k + 2; i < N; i++) {
+		FT new_value = c * RR(k, i) + s * RR(k + 1, i);
+		RR(k + 1, i) = s * RR(k, i) - c * RR(k + 1, i);
+		RR(k, i) = new_value;
+	}
+
+	// b. Swap R_k and R_{k+1}, except the already processed 2x2 block.
+	for (int i = 0; i < k; i++) {
+		std::swap(RR(i, k), RR(i, k + 1));
+	}
+
+	// c. Swap U_k and U_{k+1}.
+	for (int i = 0; i < N; i++) {
+		std::swap(UU(i, k), UU(i, k + 1));
+	}
+
+}
+
+/*
  * Apply LLL to the basis, and return the transformation matrix U such that RU is LLL-reduced.
+ * @param R upper-triangular matrix representing the R-factor from QR decomposition of the basis.
+ * @param U transformation matrix that is assumed to be the zero matrix upon calling this function.
+ *
+ * Complexity: poly(N) (for a fixed delta < 1).
  */
 void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride)
 {
@@ -45,47 +93,95 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stri
 		UU(i, i) = 1;
 	}
 
-	// Loop invariant: [0, k] is LLL-reduced (size-reduced and Lagrange reduced).
-	for (int k = 0; k < N - 1; ) {
-		// 1. Size-reduce R[k+1, n) wrt R[k].
-		for (int i = k; i >= 0; i--) {
-			size_reduce(N, R, U, row_stride, i, k + 1);
+	// Loop invariant: [0, k) is LLL-reduced (size-reduced and Lagrange reduced).
+	for (int k = 1; k < N; ) {
+		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
+		for (int i = k - 1; i >= 0; --i) {
+			size_reduce(N, R, U, row_stride, i, k);
 		}
 
-		// 2. Check ||pi(b_{k+1})||^2 > \delta ||pi(b_k)||^2,
-		// i.e. whether pi(b_k), pi(b_{k+1}) is Lagrange reduced.
-		if (SQ(RR(k, k + 1)) + SQ(RR(k + 1, k + 1)) > delta * SQ(RR(k, k))) {
+		// 2. Check ||pi(b_k)||^2 > \delta ||pi(b_{k - 1})||^2.
+		if (SQ(RR(k - 1, k)) + SQ(RR(k, k)) > delta * SQ(RR(k - 1, k - 1))) {
+			// pi(b_{k - 1}), pi(b_k) is Lagrange reduced, so move on.
 			// Already Lagrange reduced, move on.
 			k++;
-			continue;
+		} else {
+			// 3. Swap b_{k - 1} and b_k.
+			swap_basis_vectors(N, R, U, row_stride, k - 1);
+
+			// 4. Decrease `k` if possible.
+			if (k > 1) k--;
+		}
+	}
+}
+
+/*
+ * Apply DeepLLL to the basis, and return the transformation matrix U such that
+ * RU is LLL-reduced.
+ *
+ * @param R upper-triangular matrix representing the R-factor from QR decomposition of the basis.
+ * @param U transformation matrix that is assumed to be the zero matrix upon calling this function.
+ * @param depth maximum number of positions allowed for 'deep insertions'
+ *
+ * Complexity: poly(N) (for a fixed delta < 1 and a fixed depth).
+ */
+void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta,
+		const size_t row_stride, int depth)
+{
+	// If 'depth' is not supplied, set it to N.
+	if (depth <= 0) {
+		depth = N;
+	}
+
+	// Note: first running 'standard' LLL, before performing deepLLL is much faster on average.
+	// [1] https://doi.org/10.1007/s10623-014-9918-8
+	lll_reduce(N, R, U, delta, row_stride);
+
+	// Loop invariant: [0, k) is (depth-deep)LLL-reduced (size-reduced and Lagrange reduced).
+	for (int k = 1, i; k < N; ) {
+		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
+		for (i = k - 1; i >= 0; --i) {
+			size_reduce(N, R, U, row_stride, i, k);
 		}
 
-		// 3. Perform Givens rotation on coordinates {k, k+1}, and update R.
-		FT c = RR(k, k + 1), s = RR(k + 1, k + 1), norm = sqrt(c * c + s * s);
-		c /= norm;
-		s /= norm;
+		// 2. Determine ||pi_i(b_k)||^2
+		FT proj_norm_sq = 0.0;
+		for (i = k; i >= 0 && i >= k - depth; i--) {
+			proj_norm_sq += SQ(RR(i, k));
+		}
+		// Currently i < 0 or i < k-depth.
+		// Thus, increment i by 1 to satisfy again: i >= 0 and i >= k - depth.
+		++i;
 
-		RR(k, k + 1) = c * RR(k, k);
-		RR(k + 1, k + 1) = s * RR(k, k);
-		RR(k, k) = norm;
+		/* printf("DeepLLL(%d) is at %d / %d.\n", depth, k, N);
+		for (int x = 0; x < N; x++) {
+			for (int y = 0; y < N; y++)
+				printf("%.2f ", RR(x, y));
+			printf("\n");
+		}
+ */
 
-		for (int i = k + 2; i < N; i++) {
-			FT new_value = c * RR(k, i) + s * RR(k + 1, i);
-			RR(k + 1, i) = s * RR(k, i) - c * RR(k + 1, i);
-			RR(k, i) = new_value;
+		bool swap_performed = false;
+		// 3. Look for the smallest i < k such that ||pi_i(b_k)||^2 < delta ||b_i*||^2.
+		while (i < k) {
+			if (proj_norm_sq <= delta * SQ(RR(i, i))) {
+				/* printf("Swapping %d and %d results in reduction of ||b_i*||^2: %.2f -> %.2f\n",
+						i, k, SQ(RR(i, i)), proj_norm_sq); */
+				// 3a. Swap b_i and b_k.
+				// Complexity: O(N * depth)
+				while (k > i) {
+					swap_basis_vectors(N, R, U, row_stride, --k);
+				}
+				if (k == 0) k++;
+				swap_performed = true;
+				break;
+			} else {
+				// 3b. Increment i and update ||pi_i(b_k)||^2.
+				proj_norm_sq -= SQ(RR(i, k));
+				i++;
+			}
 		}
 
-		// 3. Swap U_k and U_{k+1}.
-		for (int i = 0; i < N; i++) {
-			std::swap(UU(i, k), UU(i, k + 1));
-		}
-
-		// 4. Swap R_k and R_{k+1}, except the already processed 2x2 block.
-		for (int i = 0; i < k; i++) {
-			std::swap(RR(i, k), RR(i, k + 1));
-		}
-
-		// 5. Decrease `k` such that the loop invariant holds.
-		if (k > 0) k--;
+		if (!swap_performed) k++;
 	}
 }

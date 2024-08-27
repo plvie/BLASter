@@ -8,7 +8,8 @@ from time import perf_counter_ns
 
 import numpy as np
 
-from seysen_lll import perform_lll_on_blocks, eigen_init, eigen_matmul, eigen_right_matmul
+from seysen_lll import perform_lll_on_blocks, perform_deeplll_on_blocks, \
+        eigen_init, eigen_matmul, eigen_right_matmul
 
 
 class TimeProfile:
@@ -164,7 +165,7 @@ def seysen_lll(B, args):
         profile: TimeProfile object.
     """
     n, is_reduced, prof = B.shape[1], False, TimeProfile()
-    delta, cores, verbose = args.delta, args.cores, args.verbose
+    delta, depth, cores, verbose = args.delta, args.depth, args.cores, args.verbose
     lll_size = min(max(2, args.LLL), n)
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
@@ -180,7 +181,11 @@ def seysen_lll(B, args):
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
         offset = lll_size//2 if prof.num_iterations % 2 == 1 else 0
-        perform_lll_on_blocks(R, B_red, U, delta, offset, lll_size)
+
+        if depth > 1:
+            perform_deeplll_on_blocks(R, B_red, U, delta, offset, lll_size, depth)
+        else:
+            perform_lll_on_blocks(R, B_red, U, delta, offset, lll_size)
 
         # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!

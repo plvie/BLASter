@@ -24,6 +24,8 @@ ctypedef long long ZZ
 
 cdef extern from "block_lll.cpp":
     void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride) noexcept nogil
+    void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta,
+            const size_t row_stride, int depth) noexcept nogil
 
 
 cdef extern from "eigen_matmul.cpp":
@@ -58,9 +60,7 @@ def perform_lll_on_blocks(
         cnp.ndarray[DTYPE_FT_t, ndim=2] R,
         cnp.ndarray[DTYPE_ZZ_t, ndim=2] B_red,
         cnp.ndarray[DTYPE_ZZ_t, ndim=2] U,
-        FT delta,
-        int offset,
-        int block_size) -> None:
+        FT delta, int offset, int block_size) -> None:
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
@@ -75,6 +75,35 @@ def perform_lll_on_blocks(
 
         # Step 1: run LLL on block [i, i + w).
         lll_reduce(w, &R[i, i], &U_sub[0, i], delta, n)
+
+        # Step 2: Update U and B_red by multipling with U_sub[0:w, i:i+w].
+        # U[:, i:i+w] = U[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
+        # B_red[:, i:i+w] = B_red[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def perform_deeplll_on_blocks(
+        cnp.ndarray[DTYPE_FT_t, ndim=2] R,
+        cnp.ndarray[DTYPE_ZZ_t, ndim=2] B_red,
+        cnp.ndarray[DTYPE_ZZ_t, ndim=2] U,
+        FT delta, int offset, int block_size, int depth) -> None:
+
+    # Variables
+    cdef Py_ssize_t n = R.shape[0]
+    cdef int i, w
+    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(block_size, n), dtype=DTYPE_ZZ)
+
+    # Check that these are of the correct type:
+    assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
+
+    for i in prange(offset, n, block_size, nogil=True):
+        w = min(n - i, block_size)
+
+        # Step 1: run LLL on block [i, i + w).
+        deeplll_reduce(w, &R[i, i], &U_sub[0, i], delta, n, depth)
 
         # Step 2: Update U and B_red by multipling with U_sub[0:w, i:i+w].
         # U[:, i:i+w] = U[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]

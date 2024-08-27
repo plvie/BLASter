@@ -82,6 +82,11 @@ def __main__():
             '--LLL', '-L', type=int, default=64,
             help='Size of blocks on which to call LLL locally')
 
+    # DeepLLL depth parameter
+    parser.add_argument(
+            '--depth', '-d', type=int, default=1,
+            help='Maximum allowed depth for "deep insertions" in deepLLL. 1 if not desired.')
+
     args = parser.parse_args()
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'
     assert args.LLL >= 2, 'LLL block size must be at least 2!'
