@@ -194,9 +194,9 @@ def seysen_lll(B, args):
 
         if verbose:
             for i in range(offset, n, lll_size):
-                w = min(n - i, lll_size)
-                # Check whether R_[i:i+w) is really LLL-reduced.
-                assert is_lll_reduced(R[i:i+w, i:i+w], delta)
+                # Check whether R_[i:j) is really LLL-reduced.
+                j = min(n, i + lll_size)
+                assert is_lll_reduced(R[i:j, i:j], delta)
 
         # Step 4: Seysen reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()

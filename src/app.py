@@ -5,7 +5,7 @@ lattice with quality similar to what LLL achieves.
 """
 
 import argparse
-from math import exp, gamma, log, pi
+from math import ceil, exp, gamma, log, pi
 from multiprocessing import cpu_count
 from sys import stderr
 from threadpoolctl import threadpool_limits
@@ -106,6 +106,10 @@ def __main__():
         print(f'E[∥b₁∥] ~ {norm_b1:.2f} {cmp} {int(q):d} ',
               f'(GH: λ₁ ~ {gh(n) * exp(log_det/n):.2f})',
               file=stderr)
+
+    # We use multiple cores mainly for parallelizing running LLL on blocks, so limit the number of
+    # cores to this. Matrix multiplication may use too many cores without any gain.
+    args.cores = max(1, min(args.cores, ceil(n / args.LLL)))
 
     # Perform Seysen-LLL reduction on basis B
     with threadpool_limits(limits=1):
