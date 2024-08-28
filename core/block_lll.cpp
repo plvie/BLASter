@@ -141,37 +141,35 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta,
 	lll_reduce(N, R, U, delta, row_stride);
 
 	// Loop invariant: [0, k) is (depth-deep)LLL-reduced (size-reduced and Lagrange reduced).
-	for (int k = 1, i; k < N; ) {
+	for (int k = 1; k < N; ) {
 		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
-		for (i = k - 1; i >= 0; --i) {
+		for (int i = k - 1; i >= 0; i--) {
 			size_reduce(N, R, U, row_stride, i, k);
 		}
 
-		// 2. Determine ||pi_i(b_k)||^2
+		// 2. Determine ||b_k||^2
 		FT proj_norm_sq = 0.0;
-		for (i = k; i >= 0 && i >= k - depth; i--) {
+		for (int i = 0; i <= k; i++) {
 			proj_norm_sq += RSQ(i, k);
 		}
-		// Increment i by 1 to satisfy again: i >= 0 and i >= k - depth.
-		++i;
 
+		// 3. Look for an i < k such that ||pi_i(b_k)||^2 <= delta ||b_i*||^2.
+		// Loop invariant: proj_norm_sq = ||pi_i(b_k)||^2.
 		bool swap_performed = false;
-		// 3. Look for the smallest i < k such that ||pi_i(b_k)||^2 < delta ||b_i*||^2.
-		while (i < k) {
-			if (proj_norm_sq <= delta * RSQ(i, i)) {
-				// 3a. Swap b_i and b_k.
-				// Complexity: O(N * depth)
+		for (int i = 0; i < k; i++) {
+			if ((i < depth || i >= k - depth) && proj_norm_sq <= delta * RSQ(i, i)) {
+				// 3a. Deep insert b_k at position i and move b_i, ..., b_{k-1}
+				// one position forward. Complexity: O(N * (k - i))
 				while (k > i) {
 					swap_basis_vectors(N, R, U, row_stride, --k);
 				}
 				if (k == 0) k++;
 				swap_performed = true;
 				break;
-			} else {
-				// 3b. Increment i and update ||pi_i(b_k)||^2.
-				proj_norm_sq -= RSQ(i, k);
-				i++;
 			}
+
+			// 3b. Increment i and update ||pi_i(b_k)||^2.
+			proj_norm_sq -= RSQ(i, k);
 		}
 
 		if (!swap_performed) k++;
