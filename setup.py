@@ -25,7 +25,7 @@ else:
 
 # Compile with extra arguments
 compile_args = [
-    '--std=c++17',
+    '-O3', '-march=native', '--std=c++14',
     '-DNPY_NO_DEPRECATED_API=NPY_1_9_API_VERSION',
     '-DEIGEN_NO_DEBUG',
     openmp_arg,
