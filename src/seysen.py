@@ -187,16 +187,15 @@ def seysen_lll(B, args):
         else:
             perform_lll_on_blocks(R, B_red, U, delta, offset, lll_size)
 
+        for i in range(offset, n, lll_size):
+            # Check whether R_[i:j) is really LLL-reduced.
+            j = min(n, i + lll_size)
+            assert is_lll_reduced(R[i:j, i:j], delta)
+
         # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
-
-        if verbose:
-            for i in range(offset, n, lll_size):
-                # Check whether R_[i:j) is really LLL-reduced.
-                j = min(n, i + lll_size)
-                assert is_lll_reduced(R[i:j, i:j], delta)
 
         # Step 4: Seysen reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
@@ -215,6 +214,6 @@ def seysen_lll(B, args):
         if verbose:
             print('.', end='', file=stderr, flush=True)
 
-        # Step 7: Check whether the basis is weakly-LLL reduced.
+        # Step 6: Check whether the basis is weakly-LLL reduced.
         is_reduced = is_weakly_lll_reduced(R, delta)
     return U, B_red, prof
