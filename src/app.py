@@ -12,7 +12,7 @@ from threadpoolctl import threadpool_limits
 
 import numpy as np
 
-from lattice_io import read_matrix, write_matrix
+from lattice_io import read_qary_lattice, write_lattice
 from seysen import seysen_lll
 
 
@@ -91,11 +91,11 @@ def __main__():
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'
     assert args.LLL >= 2, 'LLL block size must be at least 2!'
 
-    B = read_matrix(args.input, args.verbose)
-    n = len(B)
+    B = read_qary_lattice(args.input)
+    n = B.shape[1]
 
-    # Assumption: B is a q-ary lattice.
-    q = B[-1, 0] if all(B[:-1, 0] == 0) else B[-1, -1]
+    assert np.count_nonzero(B[:, 0]) == 1
+    q = sum(B[:, 0])
 
     if args.verbose:
         # Assume a RHF of ~1.02
@@ -120,7 +120,7 @@ def __main__():
     if print_mat and args.output == args.input:
         print_mat = input('WARNING: input & output files are same!\nContinue? (y/n) ') == 'y'
     if print_mat:
-        write_matrix(args.output, B_red)
+        write_lattice(args.output, B_red)
     elif not args.quiet:
         print(B_red.astype(np.int64))
 

@@ -4,17 +4,15 @@ Read/write a matrix in fplll format, to/from numpy array.
 import numpy as np
 
 
-def read_matrix(input_file, verbose=False, reverse=True):
+def read_qary_lattice(input_file):
     """
     Read a matrix from a file, or from stdin.
     :param input_file: file name, or when None, read from stdin.
-    :param verbose: ask for input when having no file name
-    :param reverse: whether to reverse the ordering of the outputted column vectors.
     :return: a matrix consisting of column vectors.
     """
     data = []
     if input_file is None:
-        data.append(input("Supply a matrix in fplll format:\n" if verbose else ""))
+        data.append(input())
         while data[-1][-2] != ']':
             data.append(input())
     else:
@@ -30,18 +28,19 @@ def read_matrix(input_file, verbose=False, reverse=True):
     # Convert data to list of integers
     data = [list(map(int, line[1:-1].split(' '))) for line in data]
 
-    if reverse:
+    if np.count_nonzero(data[-1]) == 1:
+        # The q-ary vectors are at the back, so reverse the basis vectors in place.
         data.reverse()
+
     # Use column vectors.
     return np.ascontiguousarray(np.array(data, dtype=np.int64).transpose())
 
 
-def write_matrix(output_file, basis):
+def write_lattice(output_file, basis):
     """
     Outputs a basis with column vectors to a file in fplll format.
     :param input_file: file name, or None (reads from stdin).
     :param basis: the matrix to output
-    :param reverse: whether to reverse the ordering of the outputted column vectors.
     """
     basis = basis.transpose()
 
