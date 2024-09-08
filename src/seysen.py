@@ -13,6 +13,9 @@ from seysen_lll import (
 )
 from stats import get_profile, rhf, slope, potential
 
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
 
 class TimeProfile:
     """
@@ -173,12 +176,17 @@ def seysen_lll(B, args):
         # because one enumeration call calls SVP on `lll_size/2` consecutive positions.
         max_enum_calls = 16 * n / lll_size
 
-    if args.logfile is not None:
-        logfile = open(args.logfile, "w")
+    # set up logfile
+    logfile = args.logfile
+    if logfile:
+        logfile = open(logfile, "w")
         # TT: total wall time used by SeysenLLL
         print('it,   TT,       rhf,      slope,     potential', file=logfile)
-    else:
-        logfile = None
+
+    # Set up animation
+    fig, ax = plt.subplots()
+    ax.set(xlim=[0, n])
+    artists = []
 
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
@@ -193,6 +201,7 @@ def seysen_lll(B, args):
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
+        artists.append(ax.plot(range(n), [log2(abs(x)) for x in R.diagonal()], color="blue"))
 
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
@@ -249,7 +258,12 @@ def seysen_lll(B, args):
         # Step 6: Check whether the basis is weakly-LLL reduced.
         is_reduced = is_weakly_lll_reduced(R, delta)
 
-    if logfile is not None:
+    # Close logfile
+    if logfile:
         logfile.close()
+
+    # Show the animation
+    ani = animation.ArtistAnimation(fig=fig, artists=artists, interval=400)
+    plt.show()
 
     return U, B_red, tprof
