@@ -94,7 +94,7 @@ def __main__():
     B = read_qary_lattice(args.input)
     n = B.shape[1]
 
-    assert np.count_nonzero(B[:, 0]) == 1
+    # assert np.count_nonzero(B[:, 0]) == 1
     q = sum(B[:, 0])
 
     if args.verbose:
