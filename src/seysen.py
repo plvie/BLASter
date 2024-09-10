@@ -11,6 +11,7 @@ import numpy as np
 from seysen_lll import perform_lll_on_blocks, perform_deeplll_on_blocks, \
         eigen_init, eigen_matmul, eigen_right_matmul
 
+from stats import rhf, slope
 
 class TimeProfile:
     """
@@ -164,8 +165,14 @@ def seysen_lll(B, args):
         B · U: an LLL-reduced basis,
         profile: TimeProfile object.
     """
-    n, is_reduced, prof = B.shape[1], False, TimeProfile()
+    n, is_reduced, tprof = B.shape[1], False, TimeProfile()
     delta, depth, cores, verbose = args.delta, args.depth, args.cores, args.verbose
+    if args.logfile is not None:
+        logfile = open(args.logfile, "w")
+        print('TT,       rhf,      slope', file=logfile)
+    else:
+        logfile = None
+
     lll_size = min(max(2, args.LLL), n)
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
@@ -173,6 +180,7 @@ def seysen_lll(B, args):
 
     eigen_init(cores)
 
+    tstart = perf_counter_ns()
     while not is_reduced:
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
@@ -180,7 +188,7 @@ def seysen_lll(B, args):
 
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
-        offset = lll_size//2 if prof.num_iterations % 2 == 1 else 0
+        offset = lll_size//2 if tprof.num_iterations % 2 == 1 else 0
 
         if depth > 1:
             perform_deeplll_on_blocks(R, B_red, U, delta, offset, lll_size, depth)
@@ -210,10 +218,18 @@ def seysen_lll(B, args):
 
         t6 = perf_counter_ns()
 
-        prof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
+        tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
         if verbose:
             print('.', end='', file=stderr, flush=True)
+        if logfile is not None:
+            TT = (t6 - tstart) * 10**-9
+            prof = [log(abs(d)) for d in R.diagonal()]
+            print(f'{TT:.6f}, {rhf(prof):.6f}, {slope(prof):.6f}', file=logfile)
 
         # Step 6: Check whether the basis is weakly-LLL reduced.
         is_reduced = is_weakly_lll_reduced(R, delta)
+
+    if logfile is not None:
+        logfile.close()
+
     return U, B_red, prof
