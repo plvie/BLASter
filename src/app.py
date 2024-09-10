@@ -86,7 +86,7 @@ def __main__():
 
     # Perform Seysen-LLL reduction on basis B
     with threadpool_limits(limits=1):
-        U, B_red, prof = seysen_lll(B, args)
+        U, B_red, tprof = seysen_lll(B, args)
 
     # Write B_red to the output file
     print_mat = args.output is not None
@@ -99,7 +99,7 @@ def __main__():
 
     # Print time consumption
     if args.verbose:
-        print('\n', str(prof), sep="", file=stderr)
+        print('\n', str(tprof), sep="", file=stderr)
 
     # Print profile
     if args.profile:

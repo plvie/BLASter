@@ -169,7 +169,7 @@ def seysen_lll(B, args):
     delta, depth, cores, verbose = args.delta, args.depth, args.cores, args.verbose
     if args.logfile is not None:
         logfile = open(args.logfile, "w")
-        print('TT,       rhf,      slope', file=logfile)
+        print('it,   TT,       rhf,      slope', file=logfile)
     else:
         logfile = None
 
@@ -224,7 +224,7 @@ def seysen_lll(B, args):
         if logfile is not None:
             TT = (t6 - tstart) * 10**-9
             prof = [log(abs(d)) for d in R.diagonal()]
-            print(f'{TT:.6f}, {rhf(prof):.6f}, {slope(prof):.6f}', file=logfile)
+            print(f'{tprof.num_iterations:4d}, {TT:.6f}, {rhf(prof):.6f}, {slope(prof):.6f}', file=logfile)
 
         # Step 6: Check whether the basis is weakly-LLL reduced.
         is_reduced = is_weakly_lll_reduced(R, delta)
@@ -232,4 +232,4 @@ def seysen_lll(B, args):
     if logfile is not None:
         logfile.close()
 
-    return U, B_red, prof
+    return U, B_red, tprof
