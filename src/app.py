@@ -5,45 +5,16 @@ lattice with quality similar to what LLL achieves.
 """
 
 import argparse
-from math import ceil, exp, gamma, log, pi
 from multiprocessing import cpu_count
 from sys import stderr
 from threadpoolctl import threadpool_limits
+from math import log, exp, ceil
 
 import numpy as np
 
 from lattice_io import read_qary_lattice, write_lattice
 from seysen import seysen_lll
-
-
-def gh(dim):
-    """
-    Return the Gaussian Heuristic at dimension n. This gives a prediction of
-    the length of the shortest vector in a lattice of unit volume.
-    :param n: lattice dimension
-    :returns: GH(n)
-    """
-    if dim >= 100:
-        return float(dim / (2*pi*exp(1)))**0.5
-    return float(gamma(1.0 + 0.5 * dim)**(1.0 / dim) / pi**0.5)
-
-
-def get_profile(B):
-    """
-    Return the profile of a basis, i.e. log ||b_i*|| for i=1, ..., n.
-    :param B: basis for a lattice
-    """
-    return [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
-
-
-def rhf(profile):
-    """
-    Return the root Hermite factor, given the profile of some basis, i.e.
-        rhf(B) = (||b_0|| / det(B)^{1/n})^{1/(n-1)}.
-    :param profile: profile belonging to some basis of some lattice
-    """
-    n = len(profile)
-    return exp((profile[0] - sum(profile) / n) / (n - 1))
+from stats import gh, rhf, slope, get_profile
 
 
 def __main__():
@@ -62,8 +33,9 @@ def __main__():
     # I/O arguments
     parser.add_argument('--input', '-i', type=str, help='Input file (default=stdin)')
     parser.add_argument('--output', '-o', type=str, help='Output file (default=stdout)')
+    parser.add_argument('--logfile', '-l', type=str, default=None, help='Logging file')
 
-    # Output profile?
+    # Output basis profile?
     parser.add_argument(
             '--profile', '-p', action='store_true',
             help='Give information on the profile of the output basis')
@@ -115,7 +87,7 @@ def __main__():
 
     # Perform Seysen-LLL reduction on basis B
     with threadpool_limits(limits=1):
-        U, B_red, prof = seysen_lll(B, args)
+        U, B_red, tprof = seysen_lll(B, args)
 
     # Write B_red to the output file
     print_mat = args.output is not None
@@ -128,13 +100,14 @@ def __main__():
 
     # Print time consumption
     if args.verbose:
-        print('\n', str(prof), sep="", file=stderr)
+        print('\n', str(tprof), sep="", file=stderr)
 
-    # Print profile
+    # Print basis profile
     if args.profile:
         prof = get_profile(B_red)
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']', file=stderr)
         print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}', file=stderr)
+        print(f'Profile avg slope: {slope(prof):.6f}', file=stderr)
 
     # Assert that applying U on the basis B indeed gives the reduced basis B_red.
     assert (B @ U == B_red).all()
