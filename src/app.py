@@ -94,16 +94,18 @@ def __main__():
     B = read_qary_lattice(args.input)
     n = B.shape[1]
 
-    # assert np.count_nonzero(B[:, 0]) == 1
-    q = sum(B[:, 0])
-
     if args.verbose:
         # Assume a RHF of ~1.02
         log_slope = log(1.02)  # -log(args.delta - 0.25)
         log_det = sum(get_profile(B))
         norm_b1 = exp(log_slope * (n-1) + log_det / n)
-        cmp = "<" if norm_b1 < q else ">="
-        print(f'E[∥b₁∥] ~ {norm_b1:.2f} {cmp} {int(q):d} ',
+
+        comparison = ""
+        if np.count_nonzero(B[:, 0]) == 1:
+            q = sum(B[:, 0])
+            cmp = "<" if norm_b1 < q else ">="
+            comparison = f'{cmp} {int(q):d} '
+        print(f'E[∥b₁∥] ~ {norm_b1:.2f} {comparison}'
               f'(GH: λ₁ ~ {gh(n) * exp(log_det/n):.2f})',
               file=stderr)
 
