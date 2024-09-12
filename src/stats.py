@@ -5,6 +5,7 @@ import numpy as np
 def get_profile(B):
     """
     Return the profile of a basis, i.e. log ||b_i*|| for i=1, ..., n.
+    Note: we use the natural logarithm. Flatter (github.com/keeganryan/flatter.git) uses base 2.
     :param B: basis for a lattice
     """
     return [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]

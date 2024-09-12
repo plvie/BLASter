@@ -35,7 +35,7 @@ def __main__():
     parser.add_argument('--output', '-o', type=str, help='Output file (default=stdout)')
     parser.add_argument('--logfile', '-l', type=str, default=None, help='Logging file')
 
-    # Output profile?
+    # Output basis profile?
     parser.add_argument(
             '--profile', '-p', action='store_true',
             help='Give information on the profile of the output basis')
@@ -102,7 +102,7 @@ def __main__():
     if args.verbose:
         print('\n', str(tprof), sep="", file=stderr)
 
-    # Print profile
+    # Print basis profile
     if args.profile:
         prof = get_profile(B_red)
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']', file=stderr)
