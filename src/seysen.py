@@ -13,6 +13,7 @@ from seysen_lll import perform_lll_on_blocks, perform_deeplll_on_blocks, \
 
 from stats import rhf, slope
 
+
 class TimeProfile:
     """
     Object containing time spent on different parts within Seysen-LLL reduction.
@@ -169,6 +170,7 @@ def seysen_lll(B, args):
     delta, depth, cores, verbose = args.delta, args.depth, args.cores, args.verbose
     if args.logfile is not None:
         logfile = open(args.logfile, "w")
+        # TT: total wall time used by SeysenLLL
         print('it,   TT,       rhf,      slope', file=logfile)
     else:
         logfile = None

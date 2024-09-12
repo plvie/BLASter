@@ -16,6 +16,7 @@ from lattice_io import read_qary_lattice, write_lattice
 from seysen import seysen_lll
 from stats import gh, rhf, slope, get_profile
 
+
 def __main__():
     # Parse the command line arguments:
     parser = argparse.ArgumentParser(
@@ -103,7 +104,7 @@ def __main__():
 
     # Print profile
     if args.profile:
-        # prof = get_profile(B_red)
+        prof = get_profile(B_red)
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']', file=stderr)
         print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}', file=stderr)
         print(f'Profile avg slope: {slope(prof):.6f}', file=stderr)

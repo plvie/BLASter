@@ -1,5 +1,6 @@
-from math import ceil, exp, gamma, log, pi
+from math import exp, gamma, log, pi
 import numpy as np
+
 
 def get_profile(B):
     """
@@ -14,11 +15,12 @@ def gh(dim):
     Return the Gaussian Heuristic at dimension n. This gives a prediction of
     the length of the shortest vector in a lattice of unit volume.
     :param n: lattice dimension
-    :returns: GH(n)
+    :return: GH(n)
     """
     if dim >= 100:
         return float(dim / (2*pi*exp(1)))**0.5
     return float(gamma(1.0 + 0.5 * dim)**(1.0 / dim) / pi**0.5)
+
 
 def rhf(profile):
     """
@@ -28,6 +30,7 @@ def rhf(profile):
     """
     n = len(profile)
     return exp((profile[0] - sum(profile) / n) / (n - 1))
+
 
 def slope(profile):
     """
@@ -42,4 +45,3 @@ def slope(profile):
         v1 += (i - i_mean) * (profile[i] - x_mean)
         v2 += (i - i_mean) * (i - i_mean)
     return v1 / v2
-
