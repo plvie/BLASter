@@ -2,13 +2,15 @@ from math import exp, gamma, log2, pi
 import numpy as np
 
 
-def get_profile(B):
+def get_profile(B, is_upper=False):
     """
     Return the profile of a basis, i.e. log_2 ||b_i*|| for i=1, ..., n.
     Note: the algorithm is taken base 2, just like https://github.com/keeganryan/flatter.
     :param B: basis for a lattice
+    :param is_upper: whether B is already an upper triangular matrix or not
     """
-    return [log2(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
+    R = B if is_upper else np.linalg.qr(B, mode='r')
+    return [log2(abs(d_i)) for d_i in R.diagonal()]
 
 
 def gh(dim):
