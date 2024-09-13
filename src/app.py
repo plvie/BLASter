@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 """
 Script to perform lattice reduction, using Seysen Size-Reduction, but with the aim of outputting a
 lattice with quality similar to what LLL achieves.

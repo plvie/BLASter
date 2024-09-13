@@ -13,3 +13,11 @@ __pycache__
 
 # Cython related files
 /build/
+
+# Local eigen files
+/eigen*
+
+# Local venv
+/activate
+/python3
+/venv/
