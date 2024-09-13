@@ -6,7 +6,7 @@
 # if virtualenv directory venv exists then prefer venv/bin/python3 over system python3
 VENV    := venv
 PYTHONV := python3
-PYTHON  := $(or $(wildcard $(VENV)/bin/$(PYTHONV)), $(shell command -v $(PYTHONV)), $(PYTHONV))
+PYTHON  = $(or $(wildcard $(VENV)/bin/$(PYTHONV)), $(shell command -v $(PYTHONV)), $(PYTHONV))
 
 
 all: cython
@@ -17,6 +17,7 @@ clean:
 
 cython:
 	$(PYTHON) setup.py build_ext
+
 
 
 ### Rules to install Eigen C++ template library for linear algebra locally
@@ -38,6 +39,8 @@ eigen-%.tar.gz:
 eigen3-clean:
 	rm -rf eigen3 eigen-$(EIGEN_VERSION) eigen-$(EIGEN_VERSION).tar.gz
 
+
+
 ### Rules to create a virtual environment with up-to-date numpy and cython
 
 # Default requirements (maybe set a specific version of numpy & cython?)
@@ -56,6 +59,7 @@ venv:
 	$(VENV)/bin/$(PYTHONV) -m pip install --upgrade $(PIP_REQUIREMENTS)
 	@echo "=================================================================="
 	@echo "=== NOTE: Please use 'source activate' to activate environment ==="
+	@echo "===       Or use './python3' to use environment                ==="
 	@echo "=================================================================="
 
 venv-clean:
