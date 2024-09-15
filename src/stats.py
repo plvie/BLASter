@@ -1,14 +1,14 @@
-from math import exp, gamma, log, pi
+from math import exp, gamma, log2, pi
 import numpy as np
 
 
 def get_profile(B):
     """
-    Return the profile of a basis, i.e. log ||b_i*|| for i=1, ..., n.
-    Note: we use the natural logarithm. Flatter (github.com/keeganryan/flatter.git) uses base 2.
+    Return the profile of a basis, i.e. log_2 ||b_i*|| for i=1, ..., n.
+    Note: the algorithm is taken base 2, just like https://github.com/keeganryan/flatter.
     :param B: basis for a lattice
     """
-    return [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
+    return [log2(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
 
 
 def gh(dim):
@@ -30,7 +30,7 @@ def rhf(profile):
     :param profile: profile belonging to some basis of some lattice
     """
     n = len(profile)
-    return exp((profile[0] - sum(profile) / n) / (n - 1))
+    return 2.0**((profile[0] - sum(profile) / n) / (n - 1))
 
 
 def slope(profile):

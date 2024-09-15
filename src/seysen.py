@@ -2,7 +2,7 @@
 LLL reduction with Seysen instead of size reduction.
 """
 
-from math import log
+from math import log2
 from sys import stderr
 from time import perf_counter_ns
 
@@ -39,7 +39,7 @@ class TimeProfile:
 
 
 def potential(B):
-    profile = [log(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
+    profile = [log2(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
     n = len(profile)
     return sum((n - i) * profile[i] for i in range(n))
 
@@ -225,7 +225,7 @@ def seysen_lll(B, args):
             print('.', end='', file=stderr, flush=True)
         if logfile is not None:
             TT = (t6 - tstart) * 10**-9
-            prof = [log(abs(d)) for d in R.diagonal()]
+            prof = [log2(abs(d)) for d in R.diagonal()]
             print(f'{tprof.num_iterations:4d}, {TT:.6f}, {rhf(prof):.6f}, {slope(prof):.6f}', file=logfile)
 
         # Step 6: Check whether the basis is weakly-LLL reduced.

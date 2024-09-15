@@ -8,7 +8,7 @@ import argparse
 from multiprocessing import cpu_count
 from sys import stderr
 from threadpoolctl import threadpool_limits
-from math import log, exp, ceil
+from math import log2, ceil
 
 import numpy as np
 
@@ -68,9 +68,9 @@ def __main__():
 
     if args.verbose:
         # Assume a RHF of ~1.02
-        log_slope = log(1.02)  # -log(args.delta - 0.25)
+        log_slope = log2(1.02)  # -log2(args.delta - 0.25)
         log_det = sum(get_profile(B))
-        norm_b1 = exp(log_slope * (n-1) + log_det / n)
+        norm_b1 = 2.0**(log_slope * (n-1) + log_det / n)
 
         comparison = ""
         if np.count_nonzero(B[:, 0]) == 1:
@@ -78,7 +78,7 @@ def __main__():
             cmp = "<" if norm_b1 < q else ">="
             comparison = f'{cmp} {int(q):d} '
         print(f'E[∥b₁∥] ~ {norm_b1:.2f} {comparison}'
-              f'(GH: λ₁ ~ {gh(n) * exp(log_det/n):.2f})',
+              f'(GH: λ₁ ~ {gh(n) * 2.0**(log_det/n):.2f})',
               file=stderr)
 
     # We use multiple cores mainly for parallelizing running LLL on blocks, so limit the number of
@@ -106,7 +106,7 @@ def __main__():
     if args.profile:
         prof = get_profile(B_red)
         print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']', file=stderr)
-        print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {exp(prof[0]):.3f}', file=stderr)
+        print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {2.0**(prof[0]):.3f}', file=stderr)
         print(f'Profile avg slope: {slope(prof):.6f}', file=stderr)
 
     # Assert that applying U on the basis B indeed gives the reduced basis B_red.
