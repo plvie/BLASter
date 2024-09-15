@@ -46,3 +46,13 @@ def slope(profile):
         v1 += (i - i_mean) * (profile[i] - x_mean)
         v2 += (i - i_mean) * (i - i_mean)
     return v1 / v2
+
+
+def potential(profile):
+    """
+    Return the (log2 of the) potential of a basis profile.
+    Normally in lattice reduction, this is a strictly decreasing function of time, and is used to
+    prove that LLL runs in polynomial time.
+    """
+    n = len(profile)
+    return sum((n - i) * profile[i] for i in range(n))

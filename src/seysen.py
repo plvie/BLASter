@@ -2,7 +2,6 @@
 LLL reduction with Seysen instead of size reduction.
 """
 
-from math import log2
 from sys import stderr
 from time import perf_counter_ns
 
@@ -11,7 +10,7 @@ import numpy as np
 from seysen_lll import perform_lll_on_blocks, perform_deeplll_on_blocks, \
         eigen_init, eigen_matmul, eigen_right_matmul
 
-from stats import rhf, slope
+from stats import get_profile, rhf, slope, potential
 
 
 class TimeProfile:
@@ -36,12 +35,6 @@ class TimeProfile:
                 f"Time LLL    reduction: {self.time_lll:18,d} ns\n"
                 f"Time Seysen reduction: {self.time_seysen:18,d} ns\n"
                 f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
-
-
-def potential(B):
-    profile = [log2(abs(d_i)) for d_i in np.linalg.qr(B, mode='r').diagonal()]
-    n = len(profile)
-    return sum((n - i) * profile[i] for i in range(n))
 
 
 def float_matmul(A, B):
@@ -171,7 +164,7 @@ def seysen_lll(B, args):
     if args.logfile is not None:
         logfile = open(args.logfile, "w")
         # TT: total wall time used by SeysenLLL
-        print('it,   TT,       rhf,      slope', file=logfile)
+        print('it,   TT,       rhf,      slope,     potential', file=logfile)
     else:
         logfile = None
 
@@ -225,8 +218,10 @@ def seysen_lll(B, args):
             print('.', end='', file=stderr, flush=True)
         if logfile is not None:
             TT = (t6 - tstart) * 10**-9
-            prof = [log2(abs(d)) for d in R.diagonal()]
-            print(f'{tprof.num_iterations:4d}, {TT:.6f}, {rhf(prof):.6f}, {slope(prof):.6f}', file=logfile)
+            prof = get_profile(R)
+            print(f'{tprof.num_iterations:4d}, {TT:.6f}, {rhf(prof):8.6f}, {slope(prof):9.6f}, '
+                  f'{potential(prof):9.3f}',
+                  file=logfile)
 
         # Step 6: Check whether the basis is weakly-LLL reduced.
         is_reduced = is_weakly_lll_reduced(R, delta)
