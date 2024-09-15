@@ -44,17 +44,16 @@ eigen3-clean:
 ### Rules to create a virtual environment with up-to-date numpy and cython
 
 # Default requirements (maybe set a specific version of numpy & cython?)
-
-PIP_REQUIREMENTS := numpy cython threadpoolctl
+PIP_REQUIREMENTS := pip cython numpy setuptools threadpoolctl
 
 venv:
 	@if [ "$(VIRTUAL_ENV)" != "" ]; then echo "Active virtual environment detected. Please run 'deactivate' first!"; false; fi
-	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install virtualenv
+	$(PYTHON) -m pip install --upgrade pip 2> /dev/null || echo "ERROR: Upgrading pip failed!"
+	$(PYTHON) -m pip install virtualenv 2> /dev/null || echo "ERROR: Installing pip package virtualenv failed!"
 	$(PYTHON) -m virtualenv $(VENV)
 	-@rm activate 2>/dev/null
 	ln -s $(VENV)/bin/activate .
-	echo "#!/usr/bin/env bash\n$(VENV)/bin/$(PYTHONV) \$$*" > ./$(PYTHONV)
+	printf "#!/usr/bin/env bash\n$(VENV)/bin/$(PYTHONV) \$$*\n" > ./$(PYTHONV)
 	chmod +x ./$(PYTHONV)
 	$(VENV)/bin/$(PYTHONV) -m pip install --upgrade $(PIP_REQUIREMENTS)
 	@echo "=================================================================="
