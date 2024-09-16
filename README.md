@@ -5,18 +5,24 @@ SeysenLLL: Lattice reduction à la LLL but using Seysen's reduction technique in
 ## Requirements
 
 - python3
-- libeigen3-dev (installed system-wide or locally in ~/.local/include)
 - Cython (version 3.0 or later)
+- Other python modules: numpy setuptools threadpoolctl (installed system-wide or in locally through `make venv`)
+- libeigen3-dev (installed system-wide or locally through `make eigen3`)
 
 Optional:
 
+- Python module: virtualenv (for creating a local virtual environment to install python3 modules)
 - fplll (for generating q-ary lattices with the `latticegen` command)
+
+## Building
+
+- Optional: Run `make eigen3` to install libeigen3 library in a subdirectory.
+- Optional: Run `make venv` to create a local virtual environment and install the required python3 modules.
+- Run `make` to compile all the Cython.
 
 ## Running
 
-- Run `make` to compile all the Cython.
 - Run the command by e.g. typing `src/app.py -pvi INPUTFILE`.
-
 
 ## Example
 
