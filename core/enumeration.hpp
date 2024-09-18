@@ -25,6 +25,7 @@ SOFTWARE.
 #ifndef ENUMLIB_ENUMERATION_HPP
 #define ENUMLIB_ENUMERATION_HPP
 
+#include <limits>
 #include <cmath>
 #include <cstdint>
 #include <array>
@@ -223,7 +224,7 @@ struct lattice_enum_t
 	template<bool svp = true>
 	void enumerate_recursive()
 	{
-		// _A = TODODODODODODODO
+		_A = std::numeric_limits<float_type>::max();
 		_update_AA();
 
 		for (int j = 0; j < N; ++j)

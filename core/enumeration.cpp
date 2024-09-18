@@ -4,7 +4,7 @@
  * Perform enumeration
  * @param N is dimension
  * @param R: upper-diagonal matrix of dimension N*N. B=Q*R
- * @param rowstride: rowstride of R. R(row,col) = R[muTstride*row + col]
+ * @param rowstride: rowstride of R. R(row,col) = R[rowstride*row + col]
  * @param pruningvector: vector of dimension N containing squared norm bounds of projected sublattices.
  * @param sol: return param: integer vector solution with respect to current basis
  *
