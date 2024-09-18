@@ -23,6 +23,14 @@ def gh(dim):
     return float(gamma(1.0 + 0.5 * dim)**(1.0 / dim) / pi**0.5)
 
 
+def gaussian_heuristic(B):
+    """
+    Return the Gaussian Heuristic for a particular basis.
+    """
+    rank = B.shape[1]
+    return gh(rank) * 2.0**(sum(get_profile(B)) / rank)
+
+
 def rhf(profile):
     """
     Return the root Hermite factor, given the profile of some basis, i.e.

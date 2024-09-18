@@ -14,7 +14,7 @@ import numpy as np
 
 from lattice_io import read_qary_lattice, write_lattice
 from seysen import seysen_lll
-from stats import gh, rhf, slope, get_profile
+from stats import gaussian_heuristic, rhf, slope, get_profile
 
 
 def __main__():
@@ -78,7 +78,7 @@ def __main__():
             cmp = "<" if norm_b1 < q else ">="
             comparison = f'{cmp} {int(q):d} '
         print(f'E[∥b₁∥] ~ {norm_b1:.2f} {comparison}'
-              f'(GH: λ₁ ~ {gh(n) * 2.0**(log_det/n):.2f})',
+              f'(GH: λ₁ ~ {gaussian_heuristic(B):.2f})',
               file=stderr)
 
     # We use multiple cores mainly for parallelizing running LLL on blocks, so limit the number of
