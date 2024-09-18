@@ -34,6 +34,8 @@ cdef extern from "eigen_matmul.cpp":
     void _eigen_right_matmul_strided(ZZ *a, const ZZ *b, int n, int m, int stride_a, int stride_b) noexcept nogil
     void _eigen_init(int num_cores) noexcept nogil
 
+cdef extern from "enumeration.cpp":
+    void enumeration(const int N, const FT *muT, const ZZ muTstride, const FT *risq, const FT* pruningvector, ZZ* sol) noexcept nogil
 
 # It's necessary to call "import_array" if you use any part of the
 # numpy PyArray_* API. From Cython 3, accessing attributes like

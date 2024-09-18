@@ -29,7 +29,10 @@ SOFTWARE.
 #include <cstdint>
 #include <array>
 
+// floating-point type
 typedef double float_type;
+
+// integer type
 typedef long long int_type;
 
 template <int N, bool findsubsols = false>
@@ -84,7 +87,7 @@ struct lattice_enum_t
 	}
 
 	// compile time parameters for enumerate_recur (without ANY runtime overhead)
-	// allows specialization for certain specific cases, e.g., i=0, or i=swirl
+	// allows specialization for certain specific cases, e.g., i=0
 	template<int i, bool svp> struct i_tag {};
 
 	template<int i, bool svp>
@@ -149,7 +152,7 @@ struct lattice_enum_t
 		}
 	}
 
-	template<bool svp, int swirl>
+	template<bool svp>
 	inline void enumerate_recur(i_tag<0, svp>)
 	{
 		static const int i = 0;
