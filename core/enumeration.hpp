@@ -48,10 +48,10 @@ struct lattice_enum_t
 	fltrow_t pr;
 
 	/* internals */
-	
+
 	float_type _A; // overall enumeration bound
 	fltrow_t _AA; // enumeration pruning bounds
-	introw_t _x, _Dx, _D2x; 
+	introw_t _x, _Dx, _D2x;
 	fltrow_t _sol; // to pass to fplll
 	fltrow_t _c;
 	introw_t _r;
@@ -59,10 +59,10 @@ struct lattice_enum_t
 	std::array<std::uint64_t, N + 1> _counts;
 
 	float_type _sigT[N][N];
-	
+
 	fltrow_t _subsolL;
 	std::array<fltrow_t, N> _subsol;
-	
+
 
 	lattice_enum_t()
 	{
@@ -216,7 +216,7 @@ struct lattice_enum_t
 
 		for (int j = 0; j < N; ++j)
 			_sol[j] = _x[j];
-			
+
 		_A = _l[0];
 		_update_AA();
 	}
