@@ -5,8 +5,8 @@
  * @param N is dimension
  * @param R: upper-diagonal matrix of dimension N*N. B=Q*R
  * @param rowstride: rowstride of R. R(row,col) = R[rowstride*row + col]
- * @param pruningvector: vector of dimension N containing squared norm bounds of projected sublattices.
- * @param sol: return param: integer vector solution with respect to current basis
+ * @param pruningvector: vector of dimension N containing bounds for the squared norm within the projected sublattices.
+ * @param sol: return param: integer vector solution with respect to current basis, or the 0 vector otherwise
  *
  * Complexity: exponential
  */
@@ -25,7 +25,7 @@ void enumeration(const int N, const float_type *R, const size_t rowstride, const
     }
     for (size_t i = 0; i < NN; ++i)
     {
-        enumobj.risq[i] = R[i*rowstride+i]*R[i*rowstride+i];
+        enumobj.risq[i] = R[i*rowstride+i] * R[i*rowstride+i];
         enumobj.pr[i] = pruningvector[i];
     }
     enumobj.enumerate_recursive<true>();
