@@ -16,15 +16,16 @@ if __name__ == "__main__":
     args = Args(logfile=None, delta=0.99, depth=1, cores=1, verbose=False, LLL=64)
     U, B_red, tprof = seysen_lll(L, args)
 
-    B_sub = B_red[:, :16]
+    subN = 40
+    B_sub = B_red[:, :subN]
 
     v0 = B_sub[:, 1]
     print(f'Currently shortest vector has length {np.dot(v0, v0)**.5:.3f}')
 
     R = np.linalg.qr(B_sub, mode='r')
-    assert R.shape == (16, 16)
+    assert R.shape == (subN, subN)
 
-    sol = svp_enumerate(R, np.repeat(R[0][0]*R[0][0], 16))
+    sol = svp_enumerate(R, np.repeat(R[0][0]*R[0][0], subN))
     print("Solution: ", sol)
     v = B_sub @ sol
     print(f'Vector: {v} has length {np.dot(v, v)**.5:.3f}')

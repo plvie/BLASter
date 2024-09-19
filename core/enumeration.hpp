@@ -252,7 +252,7 @@ struct lattice_enum_t
 
 		enumerate_recur(i_tag<N-1, svp>());
 
-		std::cout << "[enum]: " << sqrt(pr[0]) << std::endl;
+//		std::cout << "[enum]: " << sqrt(pr[0]) << std::endl;
 	}
 
 };
