@@ -136,3 +136,9 @@ def eigen_right_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[
 
 def eigen_init(int num_cores=0):
     _eigen_init(num_cores)
+
+def svp_enumerate(cnp.ndarray[DTYPE_FT_t, ndim=2, mode='c'] R, FT[:] pruningvector):
+    cdef int n = R.shape[0]
+    cdef ZZ[:] sol = np.zeros(n, dtype=np.int64)
+    enumeration(n, <FT*>&R[0, 0], n, <FT*>&pruningvector[0], <ZZ*>&sol[0])
+    return np.asarray(sol)
