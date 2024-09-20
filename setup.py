@@ -15,17 +15,18 @@ else:
 include_dirs = [np.get_include()]
 
 # Look for the Eigen library in `/usr/include` and `~/.local/include`.
-for f in [Path('/usr/include/eigen3'), Path.home().joinpath('.local/include/eigen3')]:
+for f in [Path('eigen3'), Path('/usr/include/eigen3'), Path.home().joinpath('.local/include/eigen3')]:
     if f.exists() and f.is_dir():
         include_dirs += [str(f)]
         break
 else:
     print("ERROR: seysen_lll requires the Eigen3 library!")
+    print("NOTE : Please run 'make eigen3'")
     exit(1)
 
 # Compile with extra arguments
 compile_args = [
-    '-O3', '-march=native', '--std=c++14',
+    '-O3', '-march=native', '--std=c++17',
     '-DNPY_NO_DEPRECATED_API=NPY_1_9_API_VERSION',
     '-DEIGEN_NO_DEBUG',
     openmp_arg,
