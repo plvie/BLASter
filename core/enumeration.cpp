@@ -11,49 +11,64 @@
  * Complexity: exponential
  */
 #define maxN 256
-void enumeration(const int N, const float_type *R, const size_t rowstride, const float_type* pruningvector, int_type* sol)
+void enumeration(const int N, const float_type *R, const int rowstride, const float_type* pruningvector, int_type* sol)
 {
-    if (N > maxN || N <= 0) return;
+    // ensure we always return the 0-vector in sol, unless a valid solution is found
+    std::fill(sol, sol+N, int_type(0));
+
+    // enumeration is only supported up to maxN dimensions
+    if (N > maxN || N <= 0)
+        return;
 
     // we pad the enumeration tree with virtual basis vectors up to dim maxN
     // these virtual basis vectors have very high length
     // thus these will have zero coefficients in any found solution
     lattice_enum_t<maxN> enumobj;
-    
-    size_t NN = size_t(N);
-    for (size_t i = 0; i < NN-1; ++i)
+
+    // initialize enumobj.muT
+    // assumption: enumobj.muT is all-zero
+    for (int i = 0; i < N-1; ++i)
     {
-        for (size_t j = i+1; j < NN; ++j)
+        float_type* muTi = &enumobj.muT[i][0];
+        const float_type* Ri = R+(i*rowstride);
+        float_type Rii_inv = float_type(1.0) / Ri[i];
+        for (int j = i+1; j < N; ++j)
         {
-            // muT[i][j] = <bi,bi*> / ||bi*||^2
-            enumobj.muT[i][j] = R[i*rowstride + j] / R[i*rowstride + i];
-        }
-        for (size_t j = NN; j < maxN; ++j)
-        {
-            enumobj.muT[i][j] = 0.0;
+            // muT[i][j] = <bj,bi*> / ||bi*||^2
+            muTi[j] = Ri[j] * Rii_inv;
         }
     }
-    for (size_t i = NN; i < maxN; ++i)
-    {
-        for (size_t j = i+1; j < maxN; ++j)
-        {
-            enumobj.muT[i][j] = 0.0;
-        }
-    }
-    for (size_t i = 0; i < NN; ++i)
+
+    // initialize enumobj.risq and enumobj.pr
+    for (int i = 0; i < N; ++i)
     {
         // risq[i] = ||bi*||^2
         enumobj.risq[i] = R[i*rowstride+i] * R[i*rowstride+i];
         // ensure 0 <= pr[i] <= ||b0*||^2
         enumobj.pr[i] = std::min<float_type>( enumobj.risq[0], std::max<float_type>(0.0, pruningvector[i]) );
     }
-    for (size_t i = NN; i < maxN; ++i)
+
+    // pad enumeration tree to maxN dimension using virtual basis vectors of length above enumeration bound
+    for (int i = N; i < maxN; ++i)
     {
         // ensure these virtual basis vectors are never used
-        enumobj.risq[i] = 2.0 * enumobj.risq[0];
-        enumobj.pr[i] = enumobj.pr[NN-1];
+        enumobj.risq[i] = 2.0 * enumobj.risq[0]; // = 2 * ||b0*||^2
+        enumobj.pr[i] = enumobj.pr[N-1]; // <= ||b0*||^2
     }
-    enumobj.enumerate_recursive<true>();
-    for (size_t i = 0; i < NN; ++i)
+
+    // perform enumeration
+    enumobj.enumerate_recursive();
+
+    // the virtual basis vectors should never be used
+    // if sol is non-zero for these positions then there is an internal error
+    for (int i = N; i < maxN; ++i)
+        if (enumobj._sol[i] != 0)
+        {
+            std::cerr << "[enum]: dim=" << N << ": internal error _sol[" << i << "] != 0." << std::endl;
+            return;
+        }
+
+    // write enumeration solution to sol
+    for (int i = 0; i < N; ++i)
         sol[i] = enumobj._sol[i];
 }

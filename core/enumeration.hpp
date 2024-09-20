@@ -68,6 +68,7 @@ struct lattice_enum_t
 
 
 	lattice_enum_t()
+		: muT(), risq(), pr()
 	{
 	}
 
@@ -87,19 +88,19 @@ struct lattice_enum_t
 	inline void _update_pr()
 	{
 		// ensure we're always looking for something smaller than the first basis vector
-		const double frac = 1.0 - (1.0/1024.0);
-		pr[0] = std::min<float_type>(pr[0], risq[0]*frac);
+		const float_type frac = 1.0 - (1.0/1024.0);
+		pr[0] = std::min<float_type>(std::max<float_type>(0.0,pr[0]), risq[0]*frac);
 		// ensure that the pruning bounds are non-increasing from a basis perspective.
 		for (size_t k = 1; k < N; ++k)
-			pr[k] = std::min<float_type>(pr[k-1],pr[k]);
+			pr[k] = std::min<float_type>(pr[k-1], std::max<float_type>(0.0,pr[k]));
 	}
 
 	// compile time parameters for enumerate_recur (without ANY runtime overhead)
 	// allows specialization for certain specific cases, e.g., i=0
-	template<int i, bool svp> struct i_tag {};
+	template<int i> struct i_tag {};
 
-	template<int i, bool svp>
-	inline void enumerate_recur(i_tag<i, svp>)
+	template<int i>
+	inline void enumerate_recur(i_tag<i>)
 	{
 		if (_r[i] > _r[i - 1])
 			_r[i - 1] = _r[i];
@@ -133,7 +134,7 @@ struct lattice_enum_t
 
 		while (true)
 		{
-			enumerate_recur(i_tag<i - 1, svp>());
+			enumerate_recur(i_tag<i - 1>());
 
 			if (_l[i + 1] == 0.0)
 			{
@@ -160,8 +161,7 @@ struct lattice_enum_t
 		}
 	}
 
-	template<bool svp>
-	inline void enumerate_recur(i_tag<0, svp>)
+	inline void enumerate_recur(i_tag<0>)
 	{
 		static const int i = 0;
 		float_type ci = _sigT[i][i];
@@ -191,7 +191,7 @@ struct lattice_enum_t
 
 		while (true)
 		{
-			enumerate_recur(i_tag<i - 1, svp>());
+			enumerate_recur(i_tag<i - 1>());
 
 			if (_l[i + 1] == 0.0)
 			{
@@ -215,8 +215,7 @@ struct lattice_enum_t
 	}
 
 
-	template<bool svp>
-	inline void enumerate_recur(i_tag<-1, svp>)
+	inline void enumerate_recur(i_tag<-1>)
 	{
 		if (_l[0] > pr[0] || _l[0] == 0.0)
 			return;
@@ -228,29 +227,28 @@ struct lattice_enum_t
 		_update_pr();
 	}
 
-	template<bool svp = true>
-	void enumerate_recursive()
+	inline void enumerate_recursive()
 	{
 		_update_pr();
 
+		std::fill(_l.begin(), _l.end(), 0.0);
+		std::fill(_x.begin(), _x.end(), 0);
+		std::fill(_Dx.begin(), _Dx.end(), 0);
+		std::fill(_D2x.begin(), _D2x.end(), -1);
+		std::fill(_c.begin(), _c.end(), 0.0);
+
+		std::fill(_r.begin(), _r.end(), N-1);
 		for (int j = 0; j < N; ++j)
 		{
-			_x[j] = _Dx[j] = 0; _D2x[j] = -1;
-			_sol[j] = 0;
-			_c[j] = _l[j] = 0.0;
-			_subsolL[j] = risq[j];
-			for (int k = 0; k < N; ++k)
-			{
-				_sigT[j][k] = 0.0;
-				_subsol[j][k] = 0;
-			}
-			_r[j] = N - 1;
-			_counts[j] = 0;
+			std::fill(_sigT[j]+0, _sigT[j]+N, 0.0);
+			std::fill(_subsol[j].begin(), _subsol[j].end(), 0);
 		}
-		_l[N] = 0.0;
-		_counts[N] = 0;
+		_subsolL = risq;
 
-		enumerate_recur(i_tag<N-1, svp>());
+		std::fill(_sol.begin(), _sol.end(), 0);
+		std::fill(_counts.begin(), _counts.end(), 0);
+
+		enumerate_recur(i_tag<N-1>());
 
 //		std::cout << "[enum]: " << sqrt(pr[0]) << std::endl;
 	}
