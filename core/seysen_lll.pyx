@@ -12,7 +12,9 @@ import numpy as np
 # however you can use the same name for both if you wish.
 cimport numpy as cnp
 cimport cython
+
 from cython.parallel cimport prange
+from openmp cimport omp_get_num_threads, omp_get_thread_num
 
 
 # floating-point type
@@ -31,7 +33,7 @@ cdef extern from "block_lll.cpp":
 cdef extern from "eigen_matmul.cpp":
     void _eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k) noexcept nogil
     void _eigen_right_matmul(ZZ *a, const ZZ *b, int n, int m) noexcept nogil
-    void _eigen_right_matmul_strided(ZZ *a, const ZZ *b, int n, int m, int stride_a, int stride_b) noexcept nogil
+    void _eigen_right_matmul_strided(ZZ *a, const ZZ *b, int n, int m, int stride_a) noexcept nogil
     void _eigen_init(int num_cores) noexcept nogil
 
 cdef extern from "enumeration.cpp":
@@ -66,23 +68,24 @@ def perform_lll_on_blocks(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int i, w
-    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(block_size, n), dtype=DTYPE_ZZ)
+    cdef int i, w, num_threads = omp_get_num_threads(), thread_id
+    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(num_threads, block_size**2), dtype=DTYPE_ZZ)
 
     # Check that these are of the correct type:
     assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
 
     for i in prange(offset, n, block_size, nogil=True):
         w = min(n - i, block_size)
+        thread_id = omp_get_thread_num()
 
         # Step 1: run LLL on block [i, i + w).
-        lll_reduce(w, &R[i, i], &U_sub[0, i], delta, n)
+        lll_reduce(w, &R[i, i], &U_sub[thread_id, 0], delta, n)
 
         # Step 2: Update U and B_red by multipling with U_sub[0:w, i:i+w].
         # U[:, i:i+w] = U[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
         # B_red[:, i:i+w] = B_red[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
-        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
-        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
 
 
 @cython.boundscheck(False)
@@ -95,23 +98,24 @@ def perform_deeplll_on_blocks(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int i, w
-    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(block_size, n), dtype=DTYPE_ZZ)
+    cdef int i, w, num_threads = omp_get_num_threads(), thread_id
+    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(num_threads, block_size**2), dtype=DTYPE_ZZ)
 
     # Check that these are of the correct type:
     assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
 
     for i in prange(offset, n, block_size, nogil=True):
         w = min(n - i, block_size)
+        thread_id = omp_get_thread_num()
 
         # Step 1: run LLL on block [i, i + w).
-        deeplll_reduce(w, &R[i, i], &U_sub[0, i], delta, n, depth)
+        deeplll_reduce(w, &R[i, i], &U_sub[thread_id, 0], delta, n, depth)
 
         # Step 2: Update U and B_red by multipling with U_sub[0:w, i:i+w].
         # U[:, i:i+w] = U[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
         # B_red[:, i:i+w] = B_red[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
-        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
-        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[0, i], n, w, n, n)
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
 
 
 @cython.boundscheck(False)

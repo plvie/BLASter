@@ -35,9 +35,9 @@ void _eigen_right_matmul(long long *a, const long long *b, int n, int m) {
 }
 
 
-void _eigen_right_matmul_strided(long long *a, const long long *b, int n, int m, int stride_a, int stride_b) {
+void _eigen_right_matmul_strided(long long *a, const long long *b, int n, int m, int stride_a) {
 	Eigen::Map<MatrixXZZ, Eigen::Unaligned, DynStride> ma(a, n, m, DynStride(stride_a, 1));
-	Eigen::Map<const MatrixXZZ, Eigen::Unaligned, DynStride> mb(b, m, m, DynStride(stride_b, 1));
+	Eigen::Map<const MatrixXZZ> mb(b, m, m);
 
 	ma *= mb;
 }

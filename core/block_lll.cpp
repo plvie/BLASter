@@ -21,7 +21,7 @@ extern "C" {
 #define RR(row, col) R[(row) * row_stride + (col)]
 #define RSQ(row, col) (RR(row, col) * RR(row, col))
 
-#define UU(row, col) U[(row) * row_stride + (col)]
+#define UU(row, col) U[(row) * N + (col)]
 
 /*
  * Applies size reduction to column j with respect to column i, and updates the R-factor and
@@ -91,6 +91,7 @@ void swap_basis_vectors(const int N, FT *R, ZZ *U, const size_t row_stride, cons
  */
 void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride)
 {
+	std::fill_n(U, N * N, ZZ(0));
 	// Initialize U with the identity matrix
 	for (int i = 0; i < N; i++) {
 		UU(i, i) = 1;
