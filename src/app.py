@@ -86,8 +86,7 @@ def __main__():
     args.cores = max(1, min(args.cores, ceil(n / args.LLL)))
 
     # Perform Seysen-LLL reduction on basis B
-    with threadpool_limits(limits=1):
-        U, B_red, tprof = seysen_lll(B, args)
+    U, B_red, tprof = seysen_lll(B, args)
 
     # Write B_red to the output file
     print_mat = args.output is not None
@@ -115,4 +114,5 @@ def __main__():
 
 if __name__ == '__main__':
     np.set_printoptions(linewidth=1000, threshold=2147483647, suppress=True)
-    __main__()
+    with threadpool_limits(limits=1):
+        __main__()
