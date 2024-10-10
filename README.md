@@ -20,6 +20,14 @@ Optional:
 - Optional: Run `make venv` to create a local virtual environment and install the required python3 modules.
 - Run `make` to compile all the Cython.
 
+## Debugging
+
+- Debug the C++/Cython code with the `libasan` and `libubsan` sanitizers by running `make cython-gdb`.
+    These sanitizers check for memory leaks, out of bounds accesses, and undefined behaviour.
+- When executing the `src/app.py`, preload libasan like this:
+    `LD_PRELOAD=$(gcc -print-file-name=libasan.so) src/app.py -pvi INPUTFILE`
+- If you want to run the program with the `gdb` debugger, read the [Cython documentation](https://cython.readthedocs.io/en/stable/src/userguide/debugging.html#running-the-debugger), for more info.
+
 ## Running
 
 - Run the command by e.g. typing `src/app.py -pvi INPUTFILE`.

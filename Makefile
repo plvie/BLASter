@@ -1,7 +1,7 @@
 # This Makefile compiles Cython
 .POSIX:
 
-.PHONY: cython venv-clean eigen3-clean
+.PHONY: cython cython-gdb venv-clean eigen3-clean
 
 # if virtualenv directory venv exists then prefer venv/bin/python3 over system python3
 VENV    := venv
@@ -15,9 +15,14 @@ clean:
 	$(PYTHON) setup.py clean
 	rm -rf build
 
+# Run
 cython:
 	$(PYTHON) setup.py build_ext
 
+# Debug
+# The LD_PRELOAD trick is from https://github.com/grpc/grpc/issues/25819
+cython-gdb:
+	$(PYTHON) setup.py build_ext --cython-gdb
 
 
 ### Rules to install Eigen C++ template library for linear algebra locally

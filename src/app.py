@@ -18,7 +18,6 @@ from stats import gaussian_heuristic, rhf, slope, get_profile
 
 
 def __main__():
-    # Parse the command line arguments:
     parser = argparse.ArgumentParser(
             prog='SeysenLLL',
             description='LLL-reduce a lattice using seysen reduction',
@@ -34,34 +33,44 @@ def __main__():
     parser.add_argument('--input', '-i', type=str, help='Input file (default=stdin)')
     parser.add_argument('--output', '-o', type=str, help='Output file (default=stdout)')
     parser.add_argument('--logfile', '-l', type=str, default=None, help='Logging file')
-
-    # Output basis profile?
     parser.add_argument(
             '--profile', '-p', action='store_true',
             help='Give information on the profile of the output basis')
-    # Do not output reduced basis?
     parser.add_argument(
             '--quiet', '-q', action='store_true',
             help='Quiet mode will not output the output basis')
 
-    # Lovasz condition
+    # LLL parameters
     parser.add_argument(
             '--delta', type=float, default=0.99,
             help='delta factor for Lovasz condition')
-
-    # LLL block size
     parser.add_argument(
             '--LLL', '-L', type=int, default=64,
-            help='Size of blocks on which to call LLL locally')
+            help='Size of blocks on which to call LLL/DeepLLL/BKZ locally & in parallel')
 
-    # DeepLLL depth parameter
+    # Parameters specific to DeepLLL:
     parser.add_argument(
-            '--depth', '-d', type=int, default=1,
-            help='Maximum allowed depth for "deep insertions" in deepLLL. 1 if not desired.')
+            '--depth', '-d', type=int, default=0,
+            help='Maximum allowed depth for "deep insertions" in deepLLL. 0 if not desired.')
 
+    # Parameters specific to BKZ:
+    parser.add_argument(
+            '--beta', '-b', type=int, default=0,
+            help='Blocksize used within BKZ. 0 if not desired.')
+    parser.add_argument(
+            '--max_tours', '-t', type=int, default=0,
+            help='Maximum number of tours allowed to perform. 0 if unlimited.')
+
+    # Parse the command line arguments
     args = parser.parse_args()
+
+    # Perform sanity checks
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'
     assert args.LLL >= 2, 'LLL block size must be at least 2!'
+
+    assert not args.depth or not args.beta, 'Cannot run combination of DeepLLL and BKZ!'
+    if args.beta:
+        assert 2 * args.beta <= args.LLL, 'LLL blocksize is not large enough for BKZ!'
 
     B = read_qary_lattice(args.input)
     n = B.shape[1]

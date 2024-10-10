@@ -13,6 +13,7 @@ import numpy as np
 cimport numpy as cnp
 cimport cython
 
+from libc.string cimport memcpy
 from cython.parallel cimport prange
 from openmp cimport omp_get_num_threads, omp_get_thread_num
 
@@ -25,9 +26,9 @@ ctypedef long long ZZ
 
 
 cdef extern from "block_lll.cpp":
-    void lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const size_t row_stride) noexcept nogil
-    void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta,
-            const size_t row_stride, int depth) noexcept nogil
+    void lll_reduce(const int N, FT *R, ZZ *U, const FT delta) noexcept nogil
+    void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, int depth) noexcept nogil
+    void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta, int max_tours) noexcept nogil
 
 
 cdef extern from "eigen_matmul.cpp":
@@ -38,6 +39,7 @@ cdef extern from "eigen_matmul.cpp":
 
 cdef extern from "enumeration.cpp":
     void enumeration(const int N, const FT *R, const int row_stride, const FT* pruning_vector, ZZ* sol) noexcept nogil
+
 
 # It's necessary to call "import_array" if you use any part of the
 # numpy PyArray_* API. From Cython 3, accessing attributes like
@@ -68,8 +70,9 @@ def perform_lll_on_blocks(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int i, w, num_threads = omp_get_num_threads(), thread_id
-    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(num_threads, block_size**2), dtype=DTYPE_ZZ)
+    cdef int i, j, w, num_threads = omp_get_num_threads(), thread_id
+    cdef FT[:, ::1] R_sub = np.empty(shape=(num_threads, block_size**2), dtype=DTYPE_FT)
+    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_threads, block_size**2), dtype=DTYPE_ZZ)
 
     # Check that these are of the correct type:
     assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
@@ -78,12 +81,16 @@ def perform_lll_on_blocks(
         w = min(n - i, block_size)
         thread_id = omp_get_thread_num()
 
-        # Step 1: run LLL on block [i, i + w).
-        lll_reduce(w, &R[i, i], &U_sub[thread_id, 0], delta, n)
+        for j in range(w):
+            memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(DTYPE_FT_t));
 
-        # Step 2: Update U and B_red by multipling with U_sub[0:w, i:i+w].
-        # U[:, i:i+w] = U[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
-        # B_red[:, i:i+w] = B_red[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
+        # Step 1: run LLL on block [i, i + w).
+        lll_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta)
+
+        for j in range(w):
+            memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(DTYPE_FT_t));
+
+        # Step 2: Update U and B_red locally by multiplying with U' = U_sub[thread_id, 0 : w * w].
         _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
         _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
 
@@ -98,8 +105,9 @@ def perform_deeplll_on_blocks(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int i, w, num_threads = omp_get_num_threads(), thread_id
-    cdef ZZ[:, ::1] U_sub = np.zeros(shape=(num_threads, block_size**2), dtype=DTYPE_ZZ)
+    cdef int i, j, w, num_threads = omp_get_num_threads(), thread_id
+    cdef FT[:, ::1] R_sub = np.empty(shape=(num_threads, block_size**2), dtype=DTYPE_FT)
+    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_threads, block_size**2), dtype=DTYPE_ZZ)
 
     # Check that these are of the correct type:
     assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
@@ -108,12 +116,51 @@ def perform_deeplll_on_blocks(
         w = min(n - i, block_size)
         thread_id = omp_get_thread_num()
 
-        # Step 1: run LLL on block [i, i + w).
-        deeplll_reduce(w, &R[i, i], &U_sub[thread_id, 0], delta, n, depth)
+        for j in range(w):
+            memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(DTYPE_FT_t));
 
-        # Step 2: Update U and B_red by multipling with U_sub[0:w, i:i+w].
-        # U[:, i:i+w] = U[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
-        # B_red[:, i:i+w] = B_red[:, i:i+w] @ np.asarray(U_sub)[0:w, i:i+w]
+        # Step 1: run DeepLLL on block [i, i + w).
+        deeplll_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta, depth)
+
+        for j in range(w):
+            memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(DTYPE_FT_t));
+
+        # Step 2: Update U and B_red locally by multiplying with U' = U_sub[thread_id, 0 : w * w].
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def perform_bkz_on_blocks(
+        cnp.ndarray[DTYPE_FT_t, ndim=2] R,
+        cnp.ndarray[DTYPE_ZZ_t, ndim=2] B_red,
+        cnp.ndarray[DTYPE_ZZ_t, ndim=2] U,
+        FT delta, int offset, int block_size, int beta, int max_tours = 0) -> None:
+
+    # Variables
+    cdef Py_ssize_t n = R.shape[0]
+    cdef int i, j, w, num_threads = omp_get_num_threads(), thread_id
+    cdef FT[:, ::1] R_sub = np.empty(shape=(num_threads, block_size**2), dtype=DTYPE_FT)
+    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_threads, block_size**2), dtype=DTYPE_ZZ)
+
+    # Check that these are of the correct type:
+    assert R.dtype == DTYPE_FT and U.dtype == DTYPE_ZZ
+
+    for i in prange(offset, n, block_size, nogil=True):
+        w = min(n - i, block_size)
+        thread_id = omp_get_thread_num()
+
+        for j in range(w):
+            memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(DTYPE_FT_t));
+
+        # Step 1: run BKZ on block [i, i + w).
+        bkz_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta, beta, max_tours)
+
+        for j in range(w):
+            memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(DTYPE_FT_t));
+
+        # Step 2: Update U and B_red locally by multiplying with U' = U_sub[thread_id, 0 : w * w].
         _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
         _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
 
@@ -140,6 +187,7 @@ def eigen_right_matmul(cnp.ndarray[DTYPE_ZZ_t, ndim=2, mode='c'] A, cnp.ndarray[
 
 def eigen_init(int num_cores=0):
     _eigen_init(num_cores)
+
 
 def svp_enumerate(cnp.ndarray[DTYPE_FT_t, ndim=2, mode='c'] R, FT[:] pruningvector):
     cdef int n = R.shape[0]

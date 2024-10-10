@@ -1,24 +1,29 @@
+#ifndef ENUMLIB_WRAPPER_ENUMERATION_CPP
+#define ENUMLIB_WRAPPER_ENUMERATION_CPP
+
 #include "enumeration.hpp"
 
+#define maxN 256
+
 /*
- * Perform enumeration
+ * Perform enumeration to solve SVP in dimension N, using the enumlib library by Marc Stevens.
+ *
  * @param N is dimension
  * @param R: upper-diagonal matrix of dimension N*N. B=Q*R
  * @param rowstride: rowstride of R. R(row,col) = R[rowstride*row + col]
  * @param pruningvector: vector of dimension N containing bounds for the squared norm within the projected sublattices.
  * @param sol: return param: integer vector solution with respect to current basis, or the 0 vector otherwise
  *
- * Complexity: exponential
+ * Complexity: exponential in N.
  */
-#define maxN 256
-void enumeration(const int N, const float_type *R, const int rowstride, const float_type* pruningvector, int_type* sol)
+float_type enumeration(const int N, const float_type *R, const int rowstride, const float_type* pruningvector, int_type* sol)
 {
     // ensure we always return the 0-vector in sol, unless a valid solution is found
     std::fill(sol, sol+N, int_type(0));
 
     // enumeration is only supported up to maxN dimensions
     if (N > maxN || N <= 0)
-        return;
+        return 0.0;
 
     // we pad the enumeration tree with virtual basis vectors up to dim maxN
     // these virtual basis vectors have very high length
@@ -65,10 +70,16 @@ void enumeration(const int N, const float_type *R, const int rowstride, const fl
         if (enumobj._sol[i] != 0)
         {
             std::cerr << "[enum]: dim=" << N << ": internal error _sol[" << i << "] != 0." << std::endl;
-            return;
+            return 0.0;
         }
 
     // write enumeration solution to sol
     for (int i = 0; i < N; ++i)
         sol[i] = enumobj._sol[i];
+
+	// return the squared norm of the solution found
+	const float_type frac = 1.0 - (1.0/1024.0);
+	return (enumobj.pr[0] < enumobj.risq[0] * frac) ? enumobj.pr[0] : 0.0;
 }
+
+#endif // ENUMLIB_WRAPPER_ENUMERATION_CPP

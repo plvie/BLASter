@@ -1,5 +1,5 @@
 from pathlib import Path
-from sys import platform
+from sys import argv, platform
 from setuptools import Extension, setup
 from Cython.Build import cythonize
 
@@ -8,8 +8,10 @@ import numpy as np
 
 # Make sure OpenMP is used in Cython and Eigen.
 if platform.startswith("win"):
+    # Windows:
     openmp_arg = '/openmp'
 else:
+    # Linux/OSX:
     openmp_arg = '-fopenmp'
 
 include_dirs = [np.get_include()]
@@ -26,18 +28,39 @@ else:
 
 # Compile with extra arguments
 compile_args = [
-    '-O3', '-march=native', '--std=c++17',
+    '--std=c++17',
     '-DNPY_NO_DEPRECATED_API=NPY_1_9_API_VERSION',
-    '-DEIGEN_NO_DEBUG',
     openmp_arg,
 ]
+
+# Link with extra arguments
+link_args = [
+    openmp_arg,
+]
+
+if '--cython-gdb' in argv:
+    # Debug arguments
+    debug_args = [
+        '-fsanitize=address,undefined',
+        '-g',
+        '-fno-omit-frame-pointer',
+    ]
+    compile_args += debug_args
+    link_args += debug_args
+else:
+    # "Release" arguments
+    compile_args += [
+        '-O3',
+        '-march=native',
+        '-DEIGEN_NO_DEBUG',
+    ]
 
 extensions = [Extension(
     name="seysen_lll",
     sources=["core/seysen_lll.pyx"],
     include_dirs=include_dirs,
     extra_compile_args=compile_args,
-    extra_link_args=[openmp_arg],
+    extra_link_args=link_args,
 )]
 
 setup(

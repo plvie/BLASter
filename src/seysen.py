@@ -7,7 +7,7 @@ from time import perf_counter_ns
 
 import numpy as np
 
-from seysen_lll import perform_lll_on_blocks, perform_deeplll_on_blocks, \
+from seysen_lll import perform_lll_on_blocks, perform_deeplll_on_blocks, perform_bkz_on_blocks, \
         eigen_init, eigen_matmul, eigen_right_matmul
 
 from stats import get_profile, rhf, slope, potential
@@ -160,7 +160,11 @@ def seysen_lll(B, args):
         profile: TimeProfile object.
     """
     n, is_reduced, tprof = B.shape[1], False, TimeProfile()
-    delta, depth, cores, verbose = args.delta, args.depth, args.cores, args.verbose
+    delta, cores, verbose = args.delta, args.cores, args.verbose
+
+    depth = args.depth  # Deep-LLL params
+    beta, max_tours = args.beta, args.max_tours  # BKZ params
+
     if args.logfile is not None:
         logfile = open(args.logfile, "w")
         # TT: total wall time used by SeysenLLL
@@ -176,7 +180,7 @@ def seysen_lll(B, args):
     eigen_init(cores)
 
     tstart = perf_counter_ns()
-    while not is_reduced:
+    while not is_reduced and not (beta and max_tours and tprof.num_iterations >= max_tours):
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
@@ -185,9 +189,15 @@ def seysen_lll(B, args):
         t2 = perf_counter_ns()
         offset = lll_size//2 if tprof.num_iterations % 2 == 1 else 0
 
-        if depth > 1:
+        if depth:
+            # LLL with deep insertions
             perform_deeplll_on_blocks(R, B_red, U, delta, offset, lll_size, depth)
+        elif beta:
+            # BKZ
+            perform_bkz_on_blocks(R, B_red, U, delta, offset, lll_size,
+                                  beta, 1)
         else:
+            # Plain LLL
             perform_lll_on_blocks(R, B_red, U, delta, offset, lll_size)
 
         for i in range(offset, n, lll_size):
