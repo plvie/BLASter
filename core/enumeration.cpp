@@ -75,7 +75,9 @@ float_type enumeration(const int N, const float_type *R, const int rowstride, co
 
     // write enumeration solution to sol
     for (int i = 0; i < N; ++i)
+	{
         sol[i] = enumobj._sol[i];
+	}
 
 	// return the squared norm of the solution found
 	const float_type frac = 1.0 - (1.0/1024.0);

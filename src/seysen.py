@@ -7,9 +7,10 @@ from time import perf_counter_ns
 
 import numpy as np
 
-from seysen_lll import perform_lll_on_blocks, perform_deeplll_on_blocks, perform_bkz_on_blocks, \
-        eigen_init, eigen_matmul, eigen_right_matmul
-
+from seysen_lll import (
+    block_lll, block_deep_lll, block_bkz,
+    eigen_init, eigen_matmul, eigen_right_matmul,
+)
 from stats import get_profile, rhf, slope, potential
 
 
@@ -190,15 +191,11 @@ def seysen_lll(B, args):
         offset = lll_size//2 if tprof.num_iterations % 2 == 1 else 0
 
         if depth:
-            # LLL with deep insertions
-            perform_deeplll_on_blocks(R, B_red, U, delta, offset, lll_size, depth)
+            block_deep_lll(R, B_red, U, delta, offset, lll_size, depth)  # Deep-LLL
         elif beta:
-            # BKZ
-            perform_bkz_on_blocks(R, B_red, U, delta, offset, lll_size,
-                                  beta, 1)
+            block_bkz(R, B_red, U, delta, offset, lll_size, beta, 1)  # BKZ
         else:
-            # Plain LLL
-            perform_lll_on_blocks(R, B_red, U, delta, offset, lll_size)
+            block_lll(R, B_red, U, delta, offset, lll_size)  # LLL
 
         for i in range(offset, n, lll_size):
             # Check whether R_[i:j) is really LLL-reduced.

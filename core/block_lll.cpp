@@ -1,8 +1,6 @@
 #include<algorithm> // std::swap, std::fill_n
 #include<cmath> // llround, sqrt
 
-#include<cstdio>
-
 /*
  * Import local code to perform enumeration to do BKZ in smallish blocksizes.
  */
@@ -65,7 +63,10 @@ extern "C" {
 	 *
 	 * Complexity: poly(N) * N^{c_BKZ N} for a fixed delta < 1, where c_BKZ ~ 0.125 in [2].
 	 */
-	void hkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int max_tours);
+	void hkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int max_tours)
+	{
+		bkz_reduce(N, R, U, delta, N, max_tours);
+	}
 }
 
 
@@ -150,11 +151,11 @@ void swap_basis_vectors(const int N, FT *R, ZZ *U, const int k)
 
 }
 
-
 /*
  * Warning: this does not initialize U to identity matrix.
  * Performs LLL reduction on b_0, ..., b_{limit_k - 1}.
  */
+inline
 void internal_lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int limit_k)
 {
 	// Loop invariant: [0, k) is LLL-reduced (size-reduced and Lagrange reduced).
@@ -177,26 +178,83 @@ void internal_lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int li
 			if (k > 1) k--;
 		}
 	}
-
-	// TODO: Remove debugging information.
-/*
-	printf("Basis norms: ");
-	for (int i = 0; i < limit_k; i++) {
-		FT normsq = 0.0;
-		for (int j = 0; j <= i; j++) normsq += RSQ(j, i);
-		printf("%6.2f ", normsq);
-	}
-	printf("; R-matrix:\n");
-	for (int i = 0; i < limit_k; i++) {
-		for (int j = 0; j < limit_k; j++) {
-			if (j < i) printf("       ");
-			else printf("%6.2f ", RR(i, j));
-		}
-		printf("\n");
-	}
-*/
-
 }
+
+/*
+ * Solve SVP on b_[i, i + w), and
+ * put the result somewhere in the basis where the coefficient is +1/-1, and
+ * run LLL on b_1, ..., b_{i + w}.
+ */
+bool internal_svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol, FT *pr)
+{
+	int h = i + w;
+	if (h < N) h++;
+
+	// 1. Pick the pruning parameters for `pr[0 ... w - 1]`.
+	for (int j = 0; j < w; j++) {
+		// TODO: find stronger pruning parameters (with ~99% success probability) based on [3].
+		// [3] https://doi.org/10.1007/978-3-642-25385-0_1
+		FT pr_j = 1.0;
+
+		pr[j] = pr_j * RSQ(i, i);
+	}
+
+	// 2. Enumerate.
+	// [3] Algorithm 1, line 4
+	FT sol_square_norm = enumeration(w, &RR(i, i), N, pr, sol);
+
+	// 3. Check if it returns a shorter & nonzero vector.
+	// [3] Algorithm 1, line 5
+	// Note this might have 2 reasons:
+	//   a. pruning caused to miss a shorter vector (prob. ~ 1%), or
+	//   b. b_i is already the shortest vector in the block [i, j).
+	if (sol_square_norm == 0.0) {
+		// We are in case 3a. or 3b.
+
+		// [3] Algorithm 1, line 8:
+		// LLL-reduce the next block before enumeration.
+		internal_lll_reduce(N, R, U, delta, h);
+		return false;
+	}
+
+	// 4. Find the last +1/-1 coefficient.
+	int insert_idx = w - 1;
+	while (insert_idx >= 0 && sol[insert_idx] != 1 && sol[insert_idx] != -1) {
+		insert_idx--;
+	}
+
+	if (insert_idx < 0) {
+		// This should not happen so regularly!
+		// We should always have gcd(sol) = 1, but there can be no `i` with `sol[i] = +1/-1`!
+		// TODO: report this as an error?!
+		return false;
+	}
+
+	// 5. Replace the solution by its opposite, if sol[insert_idx] = -1.
+	if (sol[insert_idx] == -1) {
+		for (int j = 0; j <= insert_idx; j++) {
+			sol[j] = -sol[j];
+		}
+	}
+
+	// 6. Update for all 0 <= j < insert_idx:
+	for (int j = 0; j < insert_idx; j++) {
+		// b_{i + insert_idx} += sol[j] * b_{i + j}.
+		alter_basis(N, R, U, i + j, i + insert_idx, sol[j]);
+	}
+
+	// 7. Move b_{i + insert_idx} to position b_i.
+	while (--insert_idx >= 0) {
+		swap_basis_vectors(N, R, U, i + insert_idx);
+	}
+
+	// 8. Run LLL on [0, h).
+	// [3] Algorithm 1, line 6
+	internal_lll_reduce(N, R, U, delta, h);
+
+	return true;
+}
+
 
 void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 {
@@ -206,7 +264,7 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 		UU(i, i) = 1;
 	}
 
-	// Call internal function
+	// Call internal LLL function
 	internal_lll_reduce(N, R, U, delta, N);
 }
 
@@ -257,94 +315,6 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, int depth)
 	}
 }
 
-/*
- * Solve SVP on b_[i, i + w), and
- * put the result somewhere in the basis where the coefficient is +1/-1, and
- * run LLL on b_1, ..., b_{i + w}.
- */
-bool internal_svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol, FT *pr)
-{
-	int h = i + w;
-	if (h < N) h++;
-
-	// 1. Pick the pruning parameters for `pr[0 ... w - 1]`.
-	for (int j = 0; j < w; j++) {
-		// TODO: find stronger pruning parameters (with ~99% success probability) based on [3].
-		// [3] https://doi.org/10.1007/978-3-642-25385-0_1
-		FT pr_j = 1.0;
-
-		pr[j] = pr_j * RSQ(i, i);
-	}
-
-	// 2. Enumerate.
-	// [3] Algorithm 1, line 4
-	FT sol_square_norm = enumeration(w, &RR(i, i), N, pr, sol);
-
-	// 3. Check if it returns a shorter & nonzero vector.
-	// [3] Algorithm 1, line 5
-	// Note this might have 2 reasons:
-	//   a. pruning caused to miss a shorter vector (prob. ~ 1%), or
-	//   b. b_i is already the shortest vector in the block [i, j).
-	if (sol_square_norm == 0.0) {
-		// We are in case 3a. or 3b.
-
-		// [3] Algorithm 1, line 8:
-		// LLL-reduce the next block before enumeration.
-		internal_lll_reduce(N, R, U, delta, h);
-		return false;
-	}
-
-	// TODO: remove debugging information.
-/*
-	printf("(%d, %d, %d) -> Original basis vector lengths: %.3f %.3f %.3f\n",
-			N, i, w,
-			RSQ(i, i),
-			RSQ(i + 1, i + 1) + RSQ(i, i + 1),
-			RSQ(i + 2, i + 2) + RSQ(i + 1, i + 2) + RSQ(i, i + 2));
-
-	printf("Enumeration found norm^2 %.3f, solution: ", sol_square_norm);
-	for (int j = 0; j < w; j++) printf("%d ", sol[j]);
-	printf("\n");
-*/
-
-	// 4. Find the last +1/-1 coefficient.
-	int insert_idx = w - 1;
-	while (insert_idx >= 0 && sol[insert_idx] != 1 && sol[insert_idx] != -1) {
-		insert_idx--;
-	}
-
-	if (insert_idx < 0) {
-		// This should not happen so regularly!
-		// We should always have gcd(sol) = 1, but it's not guaranteed there is an `i` with `sol[i] = +1/-1`...
-		// TODO: report this as an error?!
-		return false;
-	}
-
-	// 5. Replace the solution by its opposite, if sol[insert_idx] = -1.
-	if (sol[insert_idx] == -1) {
-		for (int j = 0; j <= insert_idx; j++) {
-			sol[j] = -sol[j];
-		}
-	}
-
-	// 6. Update for all 0 <= j < insert_idx:
-	for (int j = 0; j < insert_idx; j++) {
-		// b_{i + insert_idx} += sol[j] * b_{i + j}.
-		alter_basis(N, R, U, i + j, i + insert_idx, sol[j]);
-	}
-
-	// 7. Move b_{i + insert_idx} to position b_i.
-	while (--insert_idx >= 0) {
-		swap_basis_vectors(N, R, U, i + insert_idx);
-	}
-
-	// 8. Run LLL on [0, h).
-	// [3] Algorithm 1, line 6
-	internal_lll_reduce(N, R, U, delta, h);
-
-	return true;
-}
-
 void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta, int max_tours)
 {
 	ZZ sol[MAX_ENUM_N]; // coefficients of the enumeration solution for SVP in block of size beta.
@@ -353,12 +323,9 @@ void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta, int max_tou
 	// First run 'standard' LLL, before performing BKZ.
 	lll_reduce(N, R, U, delta);
 
-	// If 'depth' is not supplied, set it to N.
 	if (beta <= 2) {
 		return;
-	}
-
-	if (beta > N) {
+	} else if (beta > N) {
 		// Perform HKZ-reduction
 		beta = N;
 	}
@@ -373,18 +340,12 @@ void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta, int max_tou
 		changed = false;
 
 		// Perform a tour.
-		// Solve SVP in blocks
-		// [0, beta), [1, 1 + beta), ..., [N - beta, N), [N - beta + 1, N), ..., [N - 2, N).
 		for (int i = 0, w = beta; i + 2 <= N; i++) {
+			// Solve SVP on block [i, i + w).
 			changed |= internal_svp(N, R, U, delta, i, w, sol, pr);
 
-			// Decrease the blocksize once we are at the end, because that part is HKZ-reduced.
+			// Decrease the blocksize once we reach the end, because that part is HKZ-reduced.
 			if (i + w == N) w--;
 		}
 	}
-}
-
-void hkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int max_tours)
-{
-	bkz_reduce(N, R, U, delta, N, max_tours);
 }
