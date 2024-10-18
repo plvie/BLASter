@@ -13,6 +13,9 @@ from seysen_lll import (
 )
 from stats import get_profile, rhf, slope, potential
 
+import matplotlib.pyplot as plt
+from matplotlib.animation import ArtistAnimation, PillowWriter
+
 
 class TimeProfile:
     """
@@ -173,12 +176,19 @@ def seysen_lll(B, args):
         # because one enumeration call calls SVP on `lll_size/2` consecutive positions.
         max_enum_calls = 16 * n / lll_size
 
-    if args.logfile is not None:
-        logfile = open(args.logfile, "w")
+    # Set up logfile
+    logfile = args.logfile
+    if logfile:
+        logfile = open(logfile, "w")
         # TT: total wall time used by SeysenLLL
         print('it,   TT,       rhf,      slope,     potential', file=logfile)
-    else:
-        logfile = None
+
+    # Set up animation
+    has_animation = bool(args.anim)
+    if has_animation:
+        fig, ax = plt.subplots()
+        ax.set(xlim=[0, n])
+        artists = []
 
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
@@ -193,6 +203,8 @@ def seysen_lll(B, args):
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
+        if has_animation:
+            artists.append(ax.plot(range(n), get_profile(R, True), color="blue"))
 
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
@@ -241,7 +253,7 @@ def seysen_lll(B, args):
             print('.', end='', file=stderr, flush=True)
         if logfile is not None:
             TT = (t6 - tstart) * 10**-9
-            prof = get_profile(R)
+            prof = get_profile(R, True)
             print(f'{tprof.num_iterations:4d}, {TT:.6f}, {rhf(prof):8.6f}, {slope(prof):9.6f}, '
                   f'{potential(prof):9.3f}',
                   file=logfile)
@@ -249,7 +261,19 @@ def seysen_lll(B, args):
         # Step 6: Check whether the basis is weakly-LLL reduced.
         is_reduced = is_weakly_lll_reduced(R, delta)
 
-    if logfile is not None:
+    # Close logfile
+    if logfile:
         logfile.close()
+
+    # Save and/or show the animation
+    if has_animation:
+        if verbose:
+            print('\nOutputting animation...', file=stderr)
+        fig.tight_layout()
+        ani = ArtistAnimation(fig=fig, artists=artists, interval=200)
+        # Generate 1920x1080 image:
+        plt.gcf().set_size_inches(16, 9)
+        # plt.show()
+        ani.save(args.anim, dpi=120, writer=PillowWriter(fps=5))
 
     return U, B_red, tprof

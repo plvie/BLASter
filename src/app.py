@@ -39,6 +39,9 @@ def __main__():
     parser.add_argument(
             '--quiet', '-q', action='store_true',
             help='Quiet mode will not output the output basis')
+    parser.add_argument(
+            '--anim', '-a', type=str,
+            help='Output a gif-file animating the basis profile during lattice reduction')
 
     # LLL parameters
     parser.add_argument(
