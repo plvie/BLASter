@@ -161,10 +161,17 @@ def seysen_lll(B, args):
         profile: TimeProfile object.
     """
     n, is_reduced, tprof = B.shape[1], False, TimeProfile()
-    delta, cores, verbose = args.delta, args.cores, args.verbose
 
+    # Parse all arguments.
+    # TODO: work with **kwargs?
+    delta, cores, verbose = args.delta, args.cores, args.verbose
+    lll_size = min(max(2, args.LLL), n)
     depth = args.depth  # Deep-LLL params
-    beta, max_tours = args.beta, args.max_tours  # BKZ params
+    beta, max_enum_calls, enum_calls = args.beta, args.max_tours, 0  # BKZ params
+    if not max_enum_calls:
+        # This corresponds to *8* `original` BKZ-tours,
+        # because one enumeration call calls SVP on `lll_size/2` consecutive positions.
+        max_enum_calls = 16 * n / lll_size
 
     if args.logfile is not None:
         logfile = open(args.logfile, "w")
@@ -173,7 +180,6 @@ def seysen_lll(B, args):
     else:
         logfile = None
 
-    lll_size = min(max(2, args.LLL), n)
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
@@ -181,22 +187,32 @@ def seysen_lll(B, args):
     eigen_init(cores)
 
     tstart = perf_counter_ns()
-    while not is_reduced and not (beta and max_tours and tprof.num_iterations >= max_tours):
+    # Keep running until the basis is LLL reduced.
+    # For BKZ: keep running until enumeration is called `max_enum_calls` times.
+    while (enum_calls < max_enum_calls) if beta else (not is_reduced):
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
 
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
-        offset = lll_size//2 if tprof.num_iterations % 2 == 1 else 0
+        offset = 0 if tprof.num_iterations % 2 == 0 else lll_size//2
 
         if depth:
             block_deep_lll(R, B_red, U, delta, offset, lll_size, depth)  # Deep-LLL
         elif beta:
-            block_bkz(R, B_red, U, delta, offset, lll_size, beta, 1)  # BKZ
+            if is_reduced:
+                offset = 0 if enum_calls % 2 == 0 else lll_size//2
+                print('E', end='', file=stderr, flush=True)
+                block_bkz(R, B_red, U, delta, offset, lll_size, beta, 1)  # BKZ
+                enum_calls += 1
+            else:
+                # Perform global LLL reduction before calling the enumeration code.
+                block_lll(R, B_red, U, delta, offset, lll_size)  # LLL
         else:
             block_lll(R, B_red, U, delta, offset, lll_size)  # LLL
 
+        # TODO: remove this sanity-check to be quicker.
         for i in range(offset, n, lll_size):
             # Check whether R_[i:j) is really LLL-reduced.
             j = min(n, i + lll_size)
