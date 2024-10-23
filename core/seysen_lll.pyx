@@ -5,6 +5,7 @@ import numpy as np
 cimport cython
 cimport numpy as cnp
 
+from cysignals.signals cimport sig_on, sig_off
 from cython.parallel cimport prange
 from libc.string cimport memcpy
 from openmp cimport omp_get_num_threads, omp_get_thread_num
@@ -59,7 +60,9 @@ def block_lll(
             memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(FT));
 
         # Step 1: run LLL on block [i, i + w).
+        sig_on()
         lll_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta)
+        sig_off()
 
         for j in range(w):
             memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(FT));
@@ -92,7 +95,9 @@ def block_deep_lll(
             memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(FT));
 
         # Step 1: run DeepLLL on block [i, i + w).
+        sig_on()
         deeplll_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta, depth)
+        sig_off()
 
         for j in range(w):
             memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(FT));
@@ -125,7 +130,9 @@ def block_bkz(
             memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(FT));
 
         # Step 1: run BKZ on block [i, i + w).
+        sig_on()
         bkz_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta, beta, max_tours)
+        sig_off()
 
         for j in range(w):
             memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(FT));

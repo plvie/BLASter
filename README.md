@@ -6,7 +6,7 @@ SeysenLLL: Lattice reduction à la LLL but using Seysen's reduction technique in
 
 - python3
 - Cython (version 3.0 or later)
-- Other python modules: numpy setuptools threadpoolctl (installed system-wide or in locally through `make venv`)
+- Other python modules: cysignals numpy setuptools threadpoolctl (installed system-wide or in locally through `make venv`)
 - libeigen3-dev (installed system-wide or locally through `make eigen3`)
 
 Optional:
