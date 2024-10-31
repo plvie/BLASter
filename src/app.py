@@ -79,8 +79,9 @@ def __main__():
     n = B.shape[1]
 
     if args.verbose:
-        # Assume a RHF of ~1.02
-        log_slope = log2(1.02)  # -log2(args.delta - 0.25)
+        # Experimentally, LLL gives a RHF of 1.02190
+        # See: https://github.com/malb/lattice-estimator/blob/main/estimator/reduction.py
+        log_slope = log2(1.02190)  # -log2(args.delta - 0.25)
         log_det = sum(get_profile(B))
         norm_b1 = 2.0**(log_slope * (n-1) + log_det / n)
 
