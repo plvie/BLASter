@@ -9,12 +9,13 @@
  * @param N is dimension
  * @param R: upper-diagonal matrix of dimension N*N. B=Q*R
  * @param rowstride: rowstride of R. R(row,col) = R[rowstride*row + col]
- * @param pruningvector: vector of dimension N containing bounds for the squared norm within the projected sublattices.
+ * @param pruningvector: vector of dimension N containing *relative* bounds for the squared norm within the projected sublattices.
+ * @param enumeration_radius: expected norm squared of the shortest nonzero vector in this lattice
  * @param sol: return param: integer vector solution with respect to current basis, or the 0 vector otherwise
  *
  * Complexity: exponential in N.
  */
-FT enumeration(const int N, const FT *R, const int rowstride, const FT* pruningvector, ZZ* sol)
+FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningvector, FT enumeration_radius, ZZ* sol)
 {
     // ensure we always return the 0-vector in sol, unless a valid solution is found
     std::fill(sol, sol+N, ZZ(0));
@@ -47,8 +48,6 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT* pruningv
     {
         // risq[i] = ||bi*||^2
         enumobj.risq[i] = R[i*rowstride+i] * R[i*rowstride+i];
-        // ensure 0 <= pr[i] <= ||b0*||^2
-        enumobj.pr[i] = std::min<FT>( enumobj.risq[0], std::max<FT>(0.0, pruningvector[i]) );
     }
 
     // pad enumeration tree to MAX_ENUM_N dimension using virtual basis vectors of length above enumeration bound
@@ -56,8 +55,13 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT* pruningv
     {
         // ensure these virtual basis vectors are never used
         enumobj.risq[i] = 2.0 * enumobj.risq[0]; // = 2 * ||b0*||^2
-        enumobj.pr[i] = enumobj.pr[N-1]; // <= ||b0*||^2
     }
+
+	// set the pruning vectors
+	std::copy(&pruningvector[0], &pruningvector[N], &enumobj.pr[0]);
+	// set the initial norm bound
+	enumobj._A = enumeration_radius;
+
 
     // perform enumeration
     enumobj.enumerate_recursive();
@@ -78,8 +82,7 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT* pruningv
 	}
 
 	// return the squared norm of the solution found
-	const FT frac = 1.0 - (1.0/1024.0);
-	return (enumobj.pr[0] < enumobj.risq[0] * frac) ? enumobj.pr[0] : 0.0;
+	return (enumobj._A < enumobj.risq[0]) ? enumobj.pr[0] : 0.0;
 }
 
 #endif // ENUMLIB_WRAPPER_ENUMERATION_CPP

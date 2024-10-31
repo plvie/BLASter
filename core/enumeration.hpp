@@ -38,7 +38,7 @@ template <int N, bool findsubsols = false>
 struct lattice_enum_t
 {
 	typedef std::array<FT, N> fltrow_t;
-	typedef std::array<ZZ, N>   introw_t;
+	typedef std::array<ZZ, N> introw_t;
 
 	/* inputs */
 	// mu^T corresponds to R (B=Q*R) with multiplicative corrections: muT[i][j] = R[i][j] / R[i][i]
@@ -46,10 +46,12 @@ struct lattice_enum_t
 	FT muT[N][N];
 	// risq[i] is ||bi*||^2, or R[i][i]*R[i][i]
 	fltrow_t risq;
-	// the pruning bounds on the norms of the respective projected sublattices
+	// the *relative* pruning bounds for the squared norm within the projected sublattices.
 	fltrow_t pr;
 
 	/* internals */
+	FT _A; // overall enumeration bound
+	fltrow_t _AA; // enumeration pruning bounds
 	introw_t _x, _Dx, _D2x;
 	fltrow_t _sol; // to pass to fplll
 	fltrow_t _c;
@@ -81,14 +83,12 @@ struct lattice_enum_t
 		return (ZZ)(roundl(a));
 	}
 
-	inline void _update_pr()
+	inline void _update_AA()
 	{
-		// ensure we're always looking for something smaller than the first basis vector
-		const FT frac = 1.0 - (1.0/1024.0);
-		pr[0] = std::min<FT>(std::max<FT>(0.0,pr[0]), risq[0]*frac);
 		// ensure that the pruning bounds are non-increasing from a basis perspective.
-		for (size_t k = 1; k < N; ++k)
-			pr[k] = std::min<FT>(pr[k-1], std::max<FT>(0.0,pr[k]));
+		for (int k = 0; k < N; ++k) {
+			_AA[k] = _A * pr[k];
+		}
 	}
 
 	// compile time parameters for enumerate_recur (without ANY runtime overhead)
@@ -116,7 +116,7 @@ struct lattice_enum_t
 			for (int j = i + 1; j < N; ++j)
 				_subsol[i][j] = _x[j];
 		}
-		if (li > pr[i])
+		if (li > _AA[i])
 			return;
 
 		_Dx[i] = _D2x[i] = (((int)(yi >= 0) & 1) << 1) - 1;
@@ -138,7 +138,7 @@ struct lattice_enum_t
 				_r[i - 1] = i;
 				FT yi2 = _c[i] - _x[i];
 				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
-				if (li2 > pr[i])
+				if (li2 > _AA[i])
 					return;
 				_l[i] = li2;
 				_sigT[i - 1][i - 1] = _sigT[i - 1][i] - _x[i] * muT[i - 1][i];
@@ -149,7 +149,7 @@ struct lattice_enum_t
 				_r[i - 1] = i;
 				FT yi2 = _c[i] - _x[i];
 				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
-				if (li2 > pr[i])
+				if (li2 > _AA[i])
 					return;
 				_l[i] = li2;
 				_sigT[i - 1][i - 1] = _sigT[i - 1][i] - _x[i] * muT[i - 1][i];
@@ -159,7 +159,7 @@ struct lattice_enum_t
 
 	inline void enumerate_recur(i_tag<0>)
 	{
-		static const int i = 0;
+		static constexpr int i = 0;
 		FT ci = _sigT[i][i];
 		FT yi = round(ci);
 		ZZ xi = (ZZ)(yi);
@@ -176,7 +176,7 @@ struct lattice_enum_t
 			for (int j = i + 1; j < N; ++j)
 				_subsol[i][j] = _x[j];
 		}
-		if (li > pr[i])
+		if (li > _AA[i])
 			return;
 
 		_Dx[i] = _D2x[i] = (((int)(yi >= 0) & 1) << 1) - 1;
@@ -194,7 +194,7 @@ struct lattice_enum_t
 				++_x[i];
 				FT yi2 = _c[i] - _x[i];
 				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
-				if (li2 > pr[i])
+				if (li2 > _AA[i])
 					return;
 				_l[i] = li2;
 			}
@@ -203,7 +203,7 @@ struct lattice_enum_t
 				_x[i] += _Dx[i]; _D2x[i] = -_D2x[i]; _Dx[i] = _D2x[i] - _Dx[i];
 				FT yi2 = _c[i] - _x[i];
 				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
-				if (li2 > pr[i])
+				if (li2 > _AA[i])
 					return;
 				_l[i] = li2;
 			}
@@ -213,19 +213,19 @@ struct lattice_enum_t
 
 	inline void enumerate_recur(i_tag<-1>)
 	{
-		if (_l[0] > pr[0] || _l[0] == 0.0)
+		if (_l[0] > _A || _l[0] == 0.0)
 			return;
 
 		for (int j = 0; j < N; ++j)
 			_sol[j] = _x[j];
 
-		pr[0] = _l[0];
-		_update_pr();
+		_A = _l[0];
+		_update_AA();
 	}
 
 	inline void enumerate_recursive()
 	{
-		_update_pr();
+		_update_AA();
 
 		std::fill(_l.begin(), _l.end(), 0.0);
 		std::fill(_x.begin(), _x.end(), 0);
@@ -246,7 +246,7 @@ struct lattice_enum_t
 
 		enumerate_recur(i_tag<N-1>());
 
-//		std::cout << "[enum]: " << sqrt(pr[0]) << std::endl;
+//		std::cout << "[enum]: " << sqrt(_A) << std::endl;
 	}
 
 };
