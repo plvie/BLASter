@@ -21,3 +21,6 @@ __pycache__
 /activate
 /python3
 /venv/
+
+/benchmark/logs
+/benchmark/flatter_logs
