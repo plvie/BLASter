@@ -1,15 +1,14 @@
 import numpy as np
 import argparse
-
+from stats import rhf, slope, potential
 
 # Adaption of:
 # https://github.com/keeganryan/flatter/blob/main/scripts/visualize_profile.py
-
+#
 # This script:
 # 1) reads a flatter logfile
 # 2) extracts the evolution of root hermite factor as time progresses
-# 3) outputs this into a csv file in format "TT,rhf", where TT contains the elapsed wall time.
-
+# 3) outputs this into a csv file in format "TT,rhf,slope", where TT is the elapsed wall time.
 class Delta:
     def __init__(self, start, end, data, prev_data=None, is_reset=False):
         self.start = start
@@ -172,33 +171,30 @@ class ProfileSet:
     def count(self):
         return len(self.__deltas)
 
-    def export_RHF(self, fname):
+    def log_profile(self, fname):
+        """
+        Output the RHF and slope of the basis profile, as a function of elapsed wall time.
+        """
         pairs = []
-        dim = len(self.__cur_data)
-        lg_norm_volume = sum(self.__cur_data) / dim # invariant: det(L)
-        last_rhf = 0.0
-
         while self.__pos + 1 < len(self.__deltas):
-            tt = self.get_time()
-            lg_b0 = self.__cur_data[0]
-            rhf = round(2.0**((lg_b0 - lg_norm_volume) / (dim - 1)), 6)
-            pairs.append((tt, rhf))
+            prof = self.get_data()
+            pairs.append((self.get_time(), rhf(prof), slope(prof), potential(prof)))
             self._step_forward()
 
         npairs, sparse_pairs = len(pairs), [pairs[0]]
         for i in range(1, npairs):
-            if i == npairs - 1 or pairs[i][1] != pairs[i-1][1]:
+            if i == npairs - 1 or abs(pairs[i][1] - pairs[i-1][1]) > 1e-6:
                 sparse_pairs.append(pairs[i])
 
         with open(fname, "w") as f:
-            print("TT,rhf", file=f)
-            for tt, rhf in sparse_pairs:
-                print(f"{tt},{rhf}", file=f)
+            print("TT,rhf,slope,potential", file=f)
+            for tt, _rhf, _slope, _pot in sparse_pairs:
+                print(f"{tt:.6f},{_rhf:.6f},{_slope:.6f},{_pot:.3f}", file=f)
 
 
 def convert_logfiles(logfile, outfile):
     prof_set = ProfileSet(logfile)
-    prof_set.export_RHF(outfile)
+    prof_set.log_profile(outfile)
 
 
 def __main__():
