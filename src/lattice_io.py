@@ -39,7 +39,7 @@ def read_qary_lattice(input_file):
 def write_lattice(output_file, basis):
     """
     Outputs a basis with column vectors to a file in fplll format.
-    :param input_file: file name, or None (reads from stdin).
+    :param output_file: file name
     :param basis: the matrix to output
     """
     basis = basis.transpose()
