@@ -45,31 +45,34 @@ def block_lll(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int i, j, w, num_threads = omp_get_num_threads(), thread_id
-    cdef FT[:, ::1] R_sub = np.empty(shape=(num_threads, block_size**2), dtype=NP_FT)
-    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_threads, block_size**2), dtype=NP_ZZ)
+    cdef int i, j, w, num_blocks = int((n - offset + block_size - 1) / block_size), block_id
+    cdef FT[:, ::1] R_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_FT)
+    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_ZZ)
 
     # Check that these are of the correct type:
     assert R.dtype == NP_FT and U.dtype == NP_ZZ
 
-    for i in prange(offset, n, block_size, nogil=True):
+    for block_id in prange(num_blocks, nogil=True):
+        i = offset + block_size * block_id
         w = min(n - i, block_size)
-        thread_id = omp_get_thread_num()
 
         for j in range(w):
-            memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(FT));
+            memcpy(&R_sub[block_id, j * w], &R[i + j, i], w * sizeof(FT));
 
         # Step 1: run LLL on block [i, i + w).
         sig_on()
-        lll_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta)
+        lll_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta)
         sig_off()
 
         for j in range(w):
-            memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(FT));
+            memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
-        # Step 2: Update U and B_red locally by multiplying with U' = U_sub[thread_id, 0 : w * w].
-        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
-        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
+    # Step 2: Update U and B_red locally by multiplying with U_sub[block_id].
+    for block_id in range(num_blocks):
+        i = offset + block_size * block_id
+        w = min(n - i, block_size)
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
 
 
 @cython.boundscheck(False)
@@ -80,31 +83,34 @@ def block_deep_lll(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int i, j, w, num_threads = omp_get_num_threads(), thread_id
-    cdef FT[:, ::1] R_sub = np.empty(shape=(num_threads, block_size**2), dtype=NP_FT)
-    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_threads, block_size**2), dtype=NP_ZZ)
+    cdef int i, j, w, num_blocks = int((n - offset + block_size - 1) / block_size), block_id
+    cdef FT[:, ::1] R_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_FT)
+    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_ZZ)
 
     # Check that these are of the correct type:
     assert R.dtype == NP_FT and U.dtype == NP_ZZ
 
-    for i in prange(offset, n, block_size, nogil=True):
+    for block_id in prange(num_blocks, nogil=True):
+        i = offset + block_size * block_id
         w = min(n - i, block_size)
-        thread_id = omp_get_thread_num()
 
         for j in range(w):
-            memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(FT));
+            memcpy(&R_sub[block_id, j * w], &R[i + j, i], w * sizeof(FT));
 
         # Step 1: run DeepLLL on block [i, i + w).
         sig_on()
-        deeplll_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta, depth)
+        deeplll_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, depth)
         sig_off()
 
         for j in range(w):
-            memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(FT));
+            memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
-        # Step 2: Update U and B_red locally by multiplying with U' = U_sub[thread_id, 0 : w * w].
-        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
-        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
+    # Step 2: Update U and B_red locally by multiplying with U_sub[block_id].
+    for block_id in range(num_blocks):
+        i = offset + block_size * block_id
+        w = min(n - i, block_size)
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
 
 
 @cython.boundscheck(False)
@@ -115,31 +121,34 @@ def block_bkz(
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
-    cdef int i, j, w, num_threads = omp_get_num_threads(), thread_id
-    cdef FT[:, ::1] R_sub = np.empty(shape=(num_threads, block_size**2), dtype=NP_FT)
-    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_threads, block_size**2), dtype=NP_ZZ)
+    cdef int i, j, w, num_blocks = int((n - offset + block_size - 1) / block_size), block_id
+    cdef FT[:, ::1] R_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_FT)
+    cdef ZZ[:, ::1] U_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_ZZ)
 
     # Check that these are of the correct type:
     assert R.dtype == NP_FT and U.dtype == NP_ZZ
 
-    for i in prange(offset, n, block_size, nogil=True):
+    for block_id in prange(num_blocks, nogil=True):
+        i = offset + block_size * block_id
         w = min(n - i, block_size)
-        thread_id = omp_get_thread_num()
 
         for j in range(w):
-            memcpy(&R_sub[thread_id, j * w], &R[i + j, i], w * sizeof(FT));
+            memcpy(&R_sub[block_id, j * w], &R[i + j, i], w * sizeof(FT));
 
         # Step 1: run BKZ on block [i, i + w).
         sig_on()
-        bkz_reduce(w, &R_sub[thread_id, 0], &U_sub[thread_id, 0], delta, beta, max_tours)
+        bkz_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, beta, max_tours)
         sig_off()
 
         for j in range(w):
-            memcpy(&R[i + j, i], &R_sub[thread_id, j * w], w * sizeof(FT));
+            memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
-        # Step 2: Update U and B_red locally by multiplying with U' = U_sub[thread_id, 0 : w * w].
-        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
-        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[thread_id, 0], n, w, n)
+    # Step 2: Update U and B_red locally by multiplying with U_sub[block_id].
+    for block_id in range(num_blocks):
+        i = offset + block_size * block_id
+        w = min(n - i, block_size)
+        _eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
+        _eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
 
 
 def eigen_init(int num_cores=0) -> None:
