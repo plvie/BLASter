@@ -13,9 +13,7 @@ mqs = [
     (512, 968665207),  # latticegen q 2 1 30 p
     (1024, 829561),  # latticegen q 2 1 20 p
 ]
-
 seeds = range(10)
-lattices = [(m, q, seed, f"../input/{m}_{q}_{seed}") for (m, q) in mqs for seed in seeds]
 
 
 def run_command(cmd):
@@ -77,11 +75,9 @@ def benchmark(cmd):
 
 
 def __main__():
-    has_cmd = 'lattices' in sys.argv[1:]
-    if has_cmd:
-        for lat in lattices:
-            gen_lattice(*lat)
+    lattices = [(m, q, seed, f"../input/{m}_{q}_{seed}") for (m, q) in mqs for seed in seeds]
 
+    has_cmd = False
     for i, arg in enumerate(sys.argv[1:]):
         is_cmd = True
         if arg == 'dim':
@@ -92,7 +88,9 @@ def __main__():
             assert len(curq) == 1
             curq = curq[0]
             lattices = [(dim, curq, seed, f"../input/{dim}_{curq}_{seed}") for seed in seeds]
-
+        elif arg == 'lattices':
+            for lat in lattices:
+                gen_lattice(*lat)
         elif arg == 'seysen':
             for lat in lattices:
                 run_seysenlll(*lat)
