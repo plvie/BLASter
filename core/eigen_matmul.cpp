@@ -1,7 +1,9 @@
 #include <Eigen/Core>
 #include <Eigen/Dense>
 
-typedef Eigen::Matrix<long long, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> MatrixXZZ;
+#include "types.hpp"
+
+typedef Eigen::Matrix<ZZ, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> MatrixXZZ;
 typedef Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic> DynStride;
 
 /**
@@ -12,7 +14,7 @@ typedef Eigen::Stride<Eigen::Dynamic, Eigen::Dynamic> DynStride;
  * Relevant reference:
  * https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
  */
-void _eigen_matmul(const long long *a, const long long *b, long long *c, int n, int m, int k) {
+void eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k) {
 	Eigen::Map<const MatrixXZZ> ma(a, n, m);
 	Eigen::Map<const MatrixXZZ> mb(b, m, k);
 	Eigen::Map<MatrixXZZ> mc(c, n, k);
@@ -27,7 +29,7 @@ void _eigen_matmul(const long long *a, const long long *b, long long *c, int n, 
  * Relevant reference:
  * https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
  */
-void _eigen_right_matmul(long long *a, const long long *b, int n, int m) {
+void eigen_right_matmul(ZZ *a, const ZZ *b, int n, int m) {
 	Eigen::Map<MatrixXZZ> ma(a, n, m);
 	Eigen::Map<const MatrixXZZ> mb(b, m, m);
 
@@ -35,7 +37,7 @@ void _eigen_right_matmul(long long *a, const long long *b, int n, int m) {
 }
 
 
-void _eigen_right_matmul_strided(long long *a, const long long *b, int n, int m, int stride_a) {
+void eigen_right_matmul_strided(ZZ *a, const ZZ *b, int n, int m, int stride_a) {
 	Eigen::Map<MatrixXZZ, Eigen::Unaligned, DynStride> ma(a, n, m, DynStride(stride_a, 1));
 	Eigen::Map<const MatrixXZZ> mb(b, m, m);
 
@@ -43,7 +45,7 @@ void _eigen_right_matmul_strided(long long *a, const long long *b, int n, int m,
 }
 
 
-void _eigen_init(int num_cores) {
+void eigen_init(int num_cores) {
 	// See https://eigen.tuxfamily.org/dox/TopicMultiThreading.html
 	Eigen::initParallel();
 	Eigen::setNbThreads(num_cores);

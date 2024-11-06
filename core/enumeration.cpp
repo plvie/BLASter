@@ -3,8 +3,6 @@
 
 #include "enumeration.hpp"
 
-#define maxN 256
-
 /*
  * Perform enumeration to solve SVP in dimension N, using the enumlib library by Marc Stevens.
  *
@@ -16,27 +14,27 @@
  *
  * Complexity: exponential in N.
  */
-float_type enumeration(const int N, const float_type *R, const int rowstride, const float_type* pruningvector, int_type* sol)
+FT enumeration(const int N, const FT *R, const int rowstride, const FT* pruningvector, ZZ* sol)
 {
     // ensure we always return the 0-vector in sol, unless a valid solution is found
-    std::fill(sol, sol+N, int_type(0));
+    std::fill(sol, sol+N, ZZ(0));
 
-    // enumeration is only supported up to maxN dimensions
-    if (N > maxN || N <= 0)
+    // enumeration is only supported up to MAX_ENUM_N dimensions
+    if (N > MAX_ENUM_N || N <= 0)
         return 0.0;
 
-    // we pad the enumeration tree with virtual basis vectors up to dim maxN
+    // we pad the enumeration tree with virtual basis vectors up to dim MAX_ENUM_N
     // these virtual basis vectors have very high length
     // thus these will have zero coefficients in any found solution
-    lattice_enum_t<maxN> enumobj;
+    lattice_enum_t<MAX_ENUM_N> enumobj;
 
     // initialize enumobj.muT
     // assumption: enumobj.muT is all-zero
     for (int i = 0; i < N-1; ++i)
     {
-        float_type* muTi = &enumobj.muT[i][0];
-        const float_type* Ri = R+(i*rowstride);
-        float_type Rii_inv = float_type(1.0) / Ri[i];
+        FT* muTi = &enumobj.muT[i][0];
+        const FT* Ri = R+(i*rowstride);
+        FT Rii_inv = FT(1.0) / Ri[i];
         for (int j = i+1; j < N; ++j)
         {
             // muT[i][j] = <bj,bi*> / ||bi*||^2
@@ -50,11 +48,11 @@ float_type enumeration(const int N, const float_type *R, const int rowstride, co
         // risq[i] = ||bi*||^2
         enumobj.risq[i] = R[i*rowstride+i] * R[i*rowstride+i];
         // ensure 0 <= pr[i] <= ||b0*||^2
-        enumobj.pr[i] = std::min<float_type>( enumobj.risq[0], std::max<float_type>(0.0, pruningvector[i]) );
+        enumobj.pr[i] = std::min<FT>( enumobj.risq[0], std::max<FT>(0.0, pruningvector[i]) );
     }
 
-    // pad enumeration tree to maxN dimension using virtual basis vectors of length above enumeration bound
-    for (int i = N; i < maxN; ++i)
+    // pad enumeration tree to MAX_ENUM_N dimension using virtual basis vectors of length above enumeration bound
+    for (int i = N; i < MAX_ENUM_N; ++i)
     {
         // ensure these virtual basis vectors are never used
         enumobj.risq[i] = 2.0 * enumobj.risq[0]; // = 2 * ||b0*||^2
@@ -66,7 +64,7 @@ float_type enumeration(const int N, const float_type *R, const int rowstride, co
 
     // the virtual basis vectors should never be used
     // if sol is non-zero for these positions then there is an internal error
-    for (int i = N; i < maxN; ++i)
+    for (int i = N; i < MAX_ENUM_N; ++i)
         if (enumobj._sol[i] != 0)
         {
             std::cerr << "[enum]: dim=" << N << ": internal error _sol[" << i << "] != 0." << std::endl;
@@ -80,7 +78,7 @@ float_type enumeration(const int N, const float_type *R, const int rowstride, co
 	}
 
 	// return the squared norm of the solution found
-	const float_type frac = 1.0 - (1.0/1024.0);
+	const FT frac = 1.0 - (1.0/1024.0);
 	return (enumobj.pr[0] < enumobj.risq[0] * frac) ? enumobj.pr[0] : 0.0;
 }
 

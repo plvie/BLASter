@@ -30,24 +30,20 @@ SOFTWARE.
 #include <array>
 #include <iostream>
 
-// floating-point type
-typedef double float_type;
-
-// integer type
-typedef long long int_type;
+#include "types.hpp"
 
 #define NOCOUNTS 1
 
 template <int N, bool findsubsols = false>
 struct lattice_enum_t
 {
-	typedef std::array<float_type, N> fltrow_t;
-	typedef std::array<int_type, N>   introw_t;
+	typedef std::array<FT, N> fltrow_t;
+	typedef std::array<ZZ, N>   introw_t;
 
 	/* inputs */
 	// mu^T corresponds to R (B=Q*R) with multiplicative corrections: muT[i][j] = R[i][j] / R[i][i]
 	// mu^T is the transposed mu in fplll (see also: An LLL Algorithm with Quadratic Complexity, Nguyen, Stehle, 2009.)
-	float_type muT[N][N];
+	FT muT[N][N];
 	// risq[i] is ||bi*||^2, or R[i][i]*R[i][i]
 	fltrow_t risq;
 	// the pruning bounds on the norms of the respective projected sublattices
@@ -58,10 +54,10 @@ struct lattice_enum_t
 	fltrow_t _sol; // to pass to fplll
 	fltrow_t _c;
 	introw_t _r;
-	std::array<float_type, N + 1> _l;
+	std::array<FT, N + 1> _l;
 	std::array<std::uint64_t, N + 1> _counts;
 
-	float_type _sigT[N][N];
+	FT _sigT[N][N];
 
 	fltrow_t _subsolL;
 	std::array<fltrow_t, N> _subsol;
@@ -72,27 +68,27 @@ struct lattice_enum_t
 	{
 	}
 
-	inline int_type myround(double a)
+	inline ZZ myround(double a)
 	{
-		return (int_type)(round(a));
+		return (ZZ)(round(a));
 	}
-	inline int_type myround(float a)
+	inline ZZ myround(float a)
 	{
-		return (int_type)(roundf(a));
+		return (ZZ)(roundf(a));
 	}
-	inline int_type myround(long double a)
+	inline ZZ myround(long double a)
 	{
-		return (int_type)(roundl(a));
+		return (ZZ)(roundl(a));
 	}
 
 	inline void _update_pr()
 	{
 		// ensure we're always looking for something smaller than the first basis vector
-		const float_type frac = 1.0 - (1.0/1024.0);
-		pr[0] = std::min<float_type>(std::max<float_type>(0.0,pr[0]), risq[0]*frac);
+		const FT frac = 1.0 - (1.0/1024.0);
+		pr[0] = std::min<FT>(std::max<FT>(0.0,pr[0]), risq[0]*frac);
 		// ensure that the pruning bounds are non-increasing from a basis perspective.
 		for (size_t k = 1; k < N; ++k)
-			pr[k] = std::min<float_type>(pr[k-1], std::max<float_type>(0.0,pr[k]));
+			pr[k] = std::min<FT>(pr[k-1], std::max<FT>(0.0,pr[k]));
 	}
 
 	// compile time parameters for enumerate_recur (without ANY runtime overhead)
@@ -104,11 +100,11 @@ struct lattice_enum_t
 	{
 		if (_r[i] > _r[i - 1])
 			_r[i - 1] = _r[i];
-		float_type ci = _sigT[i][i];
-		float_type yi = round(ci);
-		int_type xi = (int_type)(yi);
+		FT ci = _sigT[i][i];
+		FT yi = round(ci);
+		ZZ xi = (ZZ)(yi);
 		yi = ci - yi;
-		float_type li = _l[i + 1] + (yi * yi * risq[i]);
+		FT li = _l[i + 1] + (yi * yi * risq[i]);
 #ifndef NOCOUNTS
 		++_counts[i];
 #endif
@@ -140,8 +136,8 @@ struct lattice_enum_t
 			{
 				++_x[i];
 				_r[i - 1] = i;
-				float_type yi2 = _c[i] - _x[i];
-				float_type li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
+				FT yi2 = _c[i] - _x[i];
+				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
 				if (li2 > pr[i])
 					return;
 				_l[i] = li2;
@@ -151,8 +147,8 @@ struct lattice_enum_t
 			{
 				_x[i] += _Dx[i]; _D2x[i] = -_D2x[i]; _Dx[i] = _D2x[i] - _Dx[i];
 				_r[i - 1] = i;
-				float_type yi2 = _c[i] - _x[i];
-				float_type li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
+				FT yi2 = _c[i] - _x[i];
+				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
 				if (li2 > pr[i])
 					return;
 				_l[i] = li2;
@@ -164,11 +160,11 @@ struct lattice_enum_t
 	inline void enumerate_recur(i_tag<0>)
 	{
 		static const int i = 0;
-		float_type ci = _sigT[i][i];
-		float_type yi = round(ci);
-		int_type xi = (int_type)(yi);
+		FT ci = _sigT[i][i];
+		FT yi = round(ci);
+		ZZ xi = (ZZ)(yi);
 		yi = ci - yi;
-		float_type li = _l[i + 1] + (yi * yi * risq[i]);
+		FT li = _l[i + 1] + (yi * yi * risq[i]);
 #ifndef NOCOUNTS
 		++_counts[i];
 #endif
@@ -196,8 +192,8 @@ struct lattice_enum_t
 			if (_l[i + 1] == 0.0)
 			{
 				++_x[i];
-				float_type yi2 = _c[i] - _x[i];
-				float_type li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
+				FT yi2 = _c[i] - _x[i];
+				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
 				if (li2 > pr[i])
 					return;
 				_l[i] = li2;
@@ -205,8 +201,8 @@ struct lattice_enum_t
 			else
 			{
 				_x[i] += _Dx[i]; _D2x[i] = -_D2x[i]; _Dx[i] = _D2x[i] - _Dx[i];
-				float_type yi2 = _c[i] - _x[i];
-				float_type li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
+				FT yi2 = _c[i] - _x[i];
+				FT li2 = _l[i + 1] + (yi2 * yi2 * risq[i]);
 				if (li2 > pr[i])
 					return;
 				_l[i] = li2;

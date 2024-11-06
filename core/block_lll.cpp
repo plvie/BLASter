@@ -1,20 +1,7 @@
 #include<algorithm> // std::swap, std::fill_n
 #include<cmath> // llround, sqrt
 
-/*
- * Import local code to perform enumeration to do BKZ in smallish blocksizes.
- */
 #include "enumeration.cpp"
-
-constexpr int MAX_ENUM_N = 256; // See enumeration.cpp:16
-
-
-// floating-point type
-typedef double FT;
-
-// integer type
-typedef long long ZZ;
-
 
 extern "C" {
 	/*

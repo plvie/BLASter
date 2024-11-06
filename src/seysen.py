@@ -9,7 +9,7 @@ import numpy as np
 
 from seysen_lll import (
     block_lll, block_deep_lll, block_bkz,
-    eigen_init, eigen_matmul, eigen_right_matmul,
+    set_num_cores, ZZ_matmul, ZZ_right_matmul,
 )
 from stats import get_profile, rhf, slope, potential
 
@@ -73,7 +73,7 @@ def seysen_reduce_iterative(R, U):
             W = np.rint(float_matmul(np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
 
             # U12 = U11 · W
-            U[i:j, j:k] = eigen_matmul(np.ascontiguousarray(-U[i:j, i:j]), W.astype(np.int64))
+            U[i:j, j:k] = ZZ_matmul(np.ascontiguousarray(-U[i:j, i:j]), W.astype(np.int64))
             # S12 = S12' - S11 · W.
             R[i:j, j:k] -= float_matmul(R[i:j, i:j], W.astype(np.float64))
         width, hwidth = 2 * width, width
@@ -110,7 +110,7 @@ def seysen_reduce_iterative(R, U):
 #        # W = round(S11^{-1} S12).
 #        W = np.rint(float_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
 #        # Now take the fractional part of the entries of W.
-#        U[:m, m:] = eigen_matmul(np.ascontiguousarray(-U[:m, :m]), W)
+#        U[:m, m:] = ZZ_matmul(np.ascontiguousarray(-U[:m, :m]), W)
 
 
 def is_weakly_lll_reduced(R, delta=.99):
@@ -176,6 +176,8 @@ def seysen_lll(B, args):
         # because one enumeration call calls SVP on `lll_size/2` consecutive positions.
         max_enum_calls = 16 * n / lll_size
 
+    set_num_cores(cores)
+
     # Set up logfile
     logfile = args.logfile
     if logfile:
@@ -193,8 +195,6 @@ def seysen_lll(B, args):
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
-
-    eigen_init(cores)
 
     tstart = perf_counter_ns()
     # Keep running until the basis is LLL reduced.
@@ -242,8 +242,8 @@ def seysen_lll(B, args):
 
         # Step 5: Update B_red and U with transformation from Seysen.
         t5 = perf_counter_ns()
-        eigen_right_matmul(U, U_seysen)
-        eigen_right_matmul(B_red, U_seysen)
+        ZZ_right_matmul(U, U_seysen)
+        ZZ_right_matmul(B_red, U_seysen)
 
         t6 = perf_counter_ns()
 
