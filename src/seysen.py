@@ -242,9 +242,8 @@ def seysen_lll(B, args):
 
         # Step 5: Update B_red and U with transformation from Seysen.
         t5 = perf_counter_ns()
-        with np.errstate(all='raise'):
-            eigen_right_matmul(U, U_seysen)
-            eigen_right_matmul(B_red, U_seysen)
+        eigen_right_matmul(U, U_seysen)
+        eigen_right_matmul(B_red, U_seysen)
 
         t6 = perf_counter_ns()
 

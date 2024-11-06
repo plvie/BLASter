@@ -44,12 +44,7 @@ void _eigen_right_matmul_strided(long long *a, const long long *b, int n, int m,
 
 
 void _eigen_init(int num_cores) {
+	// See https://eigen.tuxfamily.org/dox/TopicMultiThreading.html
 	Eigen::initParallel();
-
-	if (num_cores > 0) {
-		Eigen::setNbThreads(num_cores);
-	}
-
-	// To check number of threads, use:
-	// printf("%d ", (int) Eigen::nbThreads());
+	Eigen::setNbThreads(num_cores);
 }

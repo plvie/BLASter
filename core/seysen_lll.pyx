@@ -8,7 +8,7 @@ cimport numpy as cnp
 from cysignals.signals cimport sig_on, sig_off
 from cython.parallel cimport prange
 from libc.string cimport memcpy
-from openmp cimport omp_get_num_threads, omp_get_thread_num
+from openmp cimport omp_get_num_threads, omp_get_thread_num, omp_set_num_threads
 
 
 # Taken from:
@@ -152,14 +152,15 @@ def block_bkz(
 
 
 def eigen_init(int num_cores=0) -> None:
+    omp_set_num_threads(num_cores)  # used by `prange` in block_X
     _eigen_init(num_cores)
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def eigen_matmul(
-		cnp.ndarray[ZZ, ndim=2, mode='c'] A,
-		cnp.ndarray[ZZ, ndim=2, mode='c'] B) -> cnp.ndarray[ZZ]:
+        cnp.ndarray[ZZ, ndim=2, mode='c'] A,
+        cnp.ndarray[ZZ, ndim=2, mode='c'] B) -> cnp.ndarray[ZZ]:
     cdef int n = A.shape[0], m = A.shape[1], k = B.shape[1]
     assert B.shape[0] == m, "Dimension mismatch"
     cdef ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=NP_ZZ)
@@ -171,8 +172,8 @@ def eigen_matmul(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def eigen_right_matmul(
-		cnp.ndarray[ZZ, ndim=2, mode='c'] A,
-		cnp.ndarray[ZZ, ndim=2, mode='c'] B) -> None:
+        cnp.ndarray[ZZ, ndim=2, mode='c'] A,
+        cnp.ndarray[ZZ, ndim=2, mode='c'] B) -> None:
     cdef int n = A.shape[0], m = A.shape[1]
     assert B.shape[0] == m and B.shape[1] == m, "Dimension mismatch"
 

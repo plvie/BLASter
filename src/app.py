@@ -75,13 +75,15 @@ def __main__():
     if args.beta:
         assert 2 * args.beta <= args.LLL, 'LLL blocksize is not large enough for BKZ!'
 
+    # Read the basis from input (file)
     B = read_qary_lattice(args.input)
-    n = B.shape[1]
+    n = B.shape[1]  # rank of basis
 
     if args.verbose:
         # Experimentally, LLL gives a RHF of 1.02190
         # See: https://github.com/malb/lattice-estimator/blob/main/estimator/reduction.py
-        log_slope = log2(1.02190)  # -log2(args.delta - 0.25)
+        # TODO: adjust slope to the prediction for DeepLLL and BKZ.
+        log_slope = log2(1.02190)  # Slope of graph of basis profile, log2(||b_i*||^2).
         log_det = sum(get_profile(B))
         norm_b1 = 2.0**(log_slope * (n-1) + log_det / n)
 
@@ -94,9 +96,14 @@ def __main__():
               f'(GH: λ₁ ~ {gaussian_heuristic(B):.2f})',
               file=stderr)
 
-    # We use multiple cores mainly for parallelizing running LLL on blocks, so limit the number of
-    # cores to this. Matrix multiplication may use too many cores without any gain.
-    args.cores = max(1, min(args.cores, ceil(n / args.LLL)))
+    # Multithreading is used to speed up SeysenLLL in two places:
+    # 1) Matrix multiplication (controlled by Eigen)
+    # 2) Lattice reduction (done using Cython's `prange`, which uses OPENMP)
+    # Notes: using more cores creates more overhead, so use cores wisely!
+    # Re 1): Starting around dimension >500, there is a performance gain using multiple threads
+    # Re 2): The program cannot use more cores in lattice reduction
+    # than the number of blocks, so do not spawn more than this number.
+    args.cores = max(1, min(args.cores, ceil(n / args.LLL), cpu_count() // 2))
 
     # Perform Seysen-LLL reduction on basis B
     U, B_red, tprof = seysen_lll(B, args)
@@ -117,9 +124,12 @@ def __main__():
     # Print basis profile
     if args.profile:
         prof = get_profile(B_red)
-        print('\nProfile: [' + ' '.join([f'{x:.2f}' for x in prof]) + ']', file=stderr)
-        print(f'Root Hermite factor: {rhf(prof):.6f}, ∥b_1∥ = {2.0**(prof[0]):.3f}', file=stderr)
-        print(f'Profile avg slope: {slope(prof):.6f}', file=stderr)
+        slope_ = slope(prof)
+        print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
+              f'Hermite factor = {rhf(prof):.6f}^n, '
+              f'∥b_1∥ = {2.0**(prof[0]):.1f}, '
+              f'slope = {slope_:.5f}, delta = {2**(-slope_ / 2):.5f}',
+              file=stderr)
 
     # Assert that applying U on the basis B indeed gives the reduced basis B_red.
     assert (B @ U == B_red).all()
@@ -127,5 +137,4 @@ def __main__():
 
 if __name__ == '__main__':
     np.set_printoptions(linewidth=1000, threshold=2147483647, suppress=True)
-    with threadpool_limits(limits=1):
-        __main__()
+    __main__()

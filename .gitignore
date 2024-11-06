@@ -22,5 +22,9 @@ __pycache__
 /python3
 /venv/
 
-/benchmark/logs
-/benchmark/flatter_logs
+# cysignals creates this directory when Ctrl+C'ing during execution
+/cysignals_crash_logs/
+
+# Benchmarks generate big logs
+/benchmark/logs/
+/benchmark/flatter_logs/
