@@ -24,7 +24,7 @@ def ZZ_matmul(const ZZ[:, ::1] A, const ZZ[:, ::1] B) -> cnp.ndarray[ZZ]:
     cdef ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=NP_ZZ)
 
     assert B.shape[0] == m, "Dimension mismatch"
-    eigen_matmul[ZZ](<const ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], &C[0, 0], n, m, k)
+    eigen_matmul(<const ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], &C[0, 0], n, m, k)
     return np.asarray(C)
 
 
@@ -38,7 +38,7 @@ def ZZ_matmul_strided(const ZZ[:, :] A, const ZZ[:, ::1] B) -> cnp.ndarray[ZZ]:
 
     cdef ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=NP_ZZ)
 
-    eigen_matmul[ZZ](<const ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], &C[0, 0], n, m, k, stride_a)
+    eigen_matmul(<const ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], &C[0, 0], n, m, k, stride_a)
     return np.asarray(C)
 
 
@@ -47,7 +47,7 @@ def ZZ_right_matmul(ZZ[:, ::1] A, const ZZ[:, ::1] B) -> None:
 
     assert B.shape[0] == m and B.shape[1] == m, "Dimension mismatch"
 
-    eigen_right_matmul[ZZ](<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n, m)
+    eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n, m)
 
 
 # Variant with row stride for A:
@@ -58,7 +58,7 @@ def ZZ_right_matmul_strided(ZZ[:, :] A, const ZZ[:] B) -> None:
 
     assert A.strides[1] == sizeof(ZZ), "Array A not C-contiguous"
 
-    eigen_right_matmul[ZZ](<ZZ*>&A[0, 0], <const ZZ*>&B[0], n, m, stride_a)
+    eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0], n, m, stride_a)
 
 
 # FT (floating-point type)

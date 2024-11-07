@@ -1,6 +1,7 @@
 """
 LLL reduction with Seysen instead of size reduction.
 """
+from functools import partial
 from sys import stderr
 from time import perf_counter_ns
 
@@ -171,11 +172,8 @@ def seysen_lll(B, args):
     delta, cores, verbose = args.delta, args.cores, args.verbose
     lll_size = min(max(2, args.LLL), n)
     depth = args.depth  # Deep-LLL params
-    beta, max_enum_calls, enum_calls = args.beta, args.max_tours, 0  # BKZ params
-    if not max_enum_calls:
-        # This corresponds to *8* `original` BKZ-tours,
-        # because one enumeration call calls SVP on `lll_size/2` consecutive positions.
-        max_enum_calls = 16 * n / lll_size
+    beta, num_tours = args.beta, args.num_tours or 8  # BKZ params
+    tours_done, cur_front = 0, 0
 
     set_num_cores(cores)
     set_debug_flag(args.profile)
@@ -194,14 +192,25 @@ def seysen_lll(B, args):
         ax.set(xlim=[0, n])
         artists = []
 
+    # Reduction function to call in each iteration:
+    red_fn, red_char = block_lll, '.'  # LLL reduction
+    if depth:
+        red_fn = partial(block_deep_lll, depth)  # Deep-LLL
+    elif beta:
+        # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
+        # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
+        # before calling the SVP oracle.
+        red_fn = partial(block_deep_lll, 4)
+
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
 
     tstart = perf_counter_ns()
+
     # Keep running until the basis is LLL reduced.
-    # For BKZ: keep running until enumeration is called `max_enum_calls` times.
-    while (enum_calls < max_enum_calls) if beta else (not is_reduced):
+    # For BKZ: keep running until enumeration is called `num_tours` times.
+    while tours_done < num_tours if beta else not is_reduced:
         # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B_red, mode='r')
@@ -210,21 +219,22 @@ def seysen_lll(B, args):
 
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
-        offset = 0 if tprof.num_iterations % 2 == 0 else lll_size//2
+        offset = lll_size // 2 if tprof.num_iterations % 2 == 0 else 0
 
-        if depth:
-            block_deep_lll(R, B_red, U, delta, offset, lll_size, depth)  # Deep-LLL
-        elif beta:
+        if beta:
+            red_char = 'E' if is_reduced else '.'
             if is_reduced:
-                offset = 0 if enum_calls % 2 == 0 else lll_size//2
-                print('E', end='', file=stderr, flush=True)
-                block_bkz(R, B_red, U, delta, offset, lll_size, beta, 1)  # BKZ
-                enum_calls += 1
+                offset = (cur_front % lll_size)
+                block_bkz(beta, R, B_red, U, delta, offset, lll_size)
+                cur_front += (lll_size + 1 - (cur_front % 2)) // 2
+                if cur_front >= n:
+                    cur_front -= n
+                    tours_done += 1
             else:
-                # Perform global LLL reduction before calling the enumeration code.
-                block_lll(R, B_red, U, delta, offset, lll_size)  # LLL
+                # Perform `red_fn` before calling the enumeration code.
+                red_fn(R, B_red, U, delta, offset, lll_size)
         else:
-            block_lll(R, B_red, U, delta, offset, lll_size)  # LLL
+            red_fn(R, B_red, U, delta, offset, lll_size)  # LLL or Deep-LLL
 
         if args.profile:
             for i in range(offset, n, lll_size):
@@ -251,7 +261,7 @@ def seysen_lll(B, args):
 
         tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
         if verbose:
-            print('.', end='', file=stderr, flush=True)
+            print(red_char, end='', file=stderr, flush=True)
         if logfile is not None:
             TT = (t6 - tstart) * 10**-9
             prof = get_profile(R, True)

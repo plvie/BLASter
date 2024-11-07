@@ -82,7 +82,7 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningv
 	}
 
 	// return the squared norm of the solution found
-	return (enumobj._A < enumobj.risq[0]) ? enumobj.pr[0] : 0.0;
+	return (enumobj._A < enumeration_radius) ? enumobj.pr[0] : 0.0;
 }
 
 #endif // ENUMLIB_WRAPPER_ENUMERATION_CPP

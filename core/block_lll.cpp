@@ -34,12 +34,11 @@ extern "C" {
 	 * @param R upper-triangular matrix representing the R-factor from QR decomposition of the basis.
 	 * @param U transformation matrix that is assumed to be the zero matrix upon calling this function.
 	 * @param beta blocksize used for BKZ (dimension of SVP oracle that uses enumeration).
-	 * @param max_tours upper bound on number of BKZ tours performed, or disabled when <= 0.
 	 *
 	 * Complexity: poly(N) * beta^{c_BKZ beta} for a fixed delta < 1, where c_BKZ ~ 0.125 in [2].
 	 * [2] https://doi.org/10.1007/978-3-030-56880-1_7
 	 */
-	void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta, int max_tours);
+	void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta);
 
 	/*
 	 * Perform HKZ reduction on the basis R, and return the transformation matrix U such that
@@ -47,13 +46,12 @@ extern "C" {
 	 *
 	 * @param R upper-triangular matrix representing the R-factor from QR decomposition of the basis.
 	 * @param U transformation matrix that is assumed to be the zero matrix upon calling this function.
-	 * @param max_tours upper bound on number of BKZ tours performed, or disabled when <= 0.
 	 *
 	 * Complexity: poly(N) * N^{c_BKZ N} for a fixed delta < 1, where c_BKZ ~ 0.125 in [2].
 	 */
-	void hkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int max_tours)
+	void hkz_reduce(const int N, FT *R, ZZ *U, const FT delta)
 	{
-		bkz_reduce(N, R, U, delta, N, max_tours);
+		bkz_reduce(N, R, U, delta, N);
 	}
 }
 
@@ -268,7 +266,7 @@ bool internal_svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *s
 		log_volume += log(RSQ(i + j, i + j));
 
 	// Find a solution that is shorter than current basis vector and of norm <1.2 GH (<2.0 GH for dim < 10)
-	FT expected_normsq = std::min(RSQ(i, i), (w < 10 ? 4.0 : 1.44) * gh_squared(w, log_volume));
+	FT expected_normsq = std::min((1023.0 / 1024) * RSQ(i, i), (w < 10 ? 4.0 : 1.44) * gh_squared(w, log_volume));
 
 	// 1. Pick the pruning parameters for `pr[0 ... w - 1]`.
 	const FT *pr = get_pruning_coefficients(w);
@@ -328,35 +326,26 @@ bool internal_svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *s
 	return true;
 }
 
-void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta, int max_tours)
+void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta)
 {
 	ZZ sol[MAX_ENUM_N]; // coefficients of the enumeration solution for SVP in block of size beta.
 
 	// First run 'standard' LLL, before performing BKZ.
 	lll_reduce(N, R, U, delta);
 
-	if (beta <= 2) {
-		return;
-	} else if (beta > N) {
+	if (beta <= 2) return;
+
+	if (beta > N) {
 		// Perform HKZ-reduction
 		beta = N;
 	}
 
-	if (max_tours <= 0) {
-		max_tours = N; // INT_MAX;
-	}
+	// Perform a tour.
+	for (int i = 0, w = beta; i + 2 <= N; i++) {
+		// Solve SVP on block [i, i + w).
+		internal_svp(N, R, U, delta, i, w, sol);
 
-	bool changed = true;
-	while (max_tours-- > 0 && changed) {
-		changed = false;
-
-		// Perform a tour.
-		for (int i = 0, w = beta; i + 2 <= N; i++) {
-			// Solve SVP on block [i, i + w).
-			changed |= internal_svp(N, R, U, delta, i, w, sol);
-
-			// Decrease the blocksize once we reach the end, because that part is HKZ-reduced.
-			if (i + w == N) w--;
-		}
+		// Decrease the blocksize once we reach the end, because that part is HKZ-reduced.
+		if (i + w == N) w--;
 	}
 }

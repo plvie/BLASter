@@ -69,9 +69,9 @@ def block_lll(
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def block_deep_lll(
+def block_deep_lll(int depth,
         cnp.ndarray[FT, ndim=2] R, cnp.ndarray[ZZ, ndim=2] B_red, cnp.ndarray[ZZ, ndim=2] U,
-        FT delta, int offset, int block_size, int depth) -> None:
+        FT delta, int offset, int block_size) -> None:
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
@@ -110,9 +110,9 @@ def block_deep_lll(
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def block_bkz(
+def block_bkz(int beta,
         cnp.ndarray[FT, ndim=2] R, cnp.ndarray[ZZ, ndim=2] B_red, cnp.ndarray[ZZ, ndim=2] U,
-        FT delta, int offset, int block_size, int beta, int max_tours = 0) -> None:
+        FT delta, int offset, int block_size) -> None:
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
@@ -132,7 +132,7 @@ def block_bkz(
             memcpy(&R_sub[block_id, j * w], &R[i + j, i], w * sizeof(FT));
 
         # Step 1: run BKZ on block [i, i + w).
-        bkz_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, beta, max_tours)
+        bkz_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, beta)
 
         if debug_size_reduction == 0:
             for j in range(w):
