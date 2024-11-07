@@ -1,20 +1,16 @@
 """
 LLL reduction with Seysen instead of size reduction.
 """
-
 from sys import stderr
 from time import perf_counter_ns
 
 import numpy as np
-
-from seysen_lll import (
-    block_lll, block_deep_lll, block_bkz,
-    set_num_cores, ZZ_matmul, ZZ_right_matmul,
-)
-from stats import get_profile, rhf, slope, potential
-
 import matplotlib.pyplot as plt
 from matplotlib.animation import ArtistAnimation, PillowWriter
+
+from lattice_reduction import block_lll, block_deep_lll, block_bkz, set_debug_flag
+from matmul import set_num_cores, ZZ_matmul_strided, ZZ_right_matmul, FT_matmul
+from stats import get_profile, rhf, slope, potential
 
 
 class TimeProfile:
@@ -41,11 +37,6 @@ class TimeProfile:
                 f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
 
 
-def float_matmul(A, B):
-    # Note: NumPy uses BLAS to multiply floating-point matrices.
-    return A @ B
-
-
 def seysen_reduce_iterative(R, U):
     """
     Perform Seysen reduction on a matrix R, while keeping track of the transformation matrix U.
@@ -64,18 +55,28 @@ def seysen_reduce_iterative(R, U):
     width, hwidth = 4, 2
     while hwidth < n:
         for i in range(0, n - hwidth, width):
-            # Reduce [i + hwidth, i + width) with respect to [i, i + hwidth)
+            # Reduce [i + hwidth, i + width) with respect to [i, i + hwidth).
+            #
+            #     [R11 R12]      [U11 U12]              [S11 S12]
+            # R = [ 0  R22], U = [ 0  U22], S = R · U = [ 0  S22]
+            #
+            # The previous iteration has computed U11 and U22, so
+            # Currently, R11 and R22 contain the values of
+            # S11 = R11 · U11 and S22 = R22 · U22 respectively.
             j, k = i + hwidth, min(n, i + width)
 
-            # S11 = R11 · U11, S12' = R12 · U22, S22 = R22 · U22.
-            R[i:j, j:k] = float_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
-            # W = round(S11^{-1} S12').
-            W = np.rint(float_matmul(np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
+            # S12' = R12 · U22.
+            R[i:j, j:k] = FT_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
+
+            # W = round(S11^{-1} · S12').
+            W = np.rint(FT_matmul(np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
 
             # U12 = U11 · W
-            U[i:j, j:k] = ZZ_matmul(np.ascontiguousarray(-U[i:j, i:j]), W.astype(np.int64))
+            U[i:j, j:k] = ZZ_matmul_strided(-U[i:j, i:j], W.astype(np.int64))
+
             # S12 = S12' - S11 · W.
-            R[i:j, j:k] -= float_matmul(R[i:j, i:j], W.astype(np.float64))
+            R[i:j, j:k] -= FT_matmul(R[i:j, i:j], W.astype(np.float64))
+
         width, hwidth = 2 * width, width
 
 
@@ -104,13 +105,13 @@ def seysen_reduce_iterative(R, U):
 #        seysen_reduce(R[:m, :m], U[:m, :m])
 #        seysen_reduce(R[m:, m:], U[m:, m:])
 #
-#        S11 = float_matmul(R[:m, :m], U[:m, :m].astype(np.float64))
-#        S12 = float_matmul(R[:m, m:], U[m:, m:].astype(np.float64))
+#        S11 = FT_matmul(R[:m, :m], U[:m, :m].astype(np.float64))
+#        S12 = FT_matmul(R[:m, m:], U[m:, m:].astype(np.float64))
 #
 #        # W = round(S11^{-1} S12).
-#        W = np.rint(float_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
+#        W = np.rint(FT_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
 #        # Now take the fractional part of the entries of W.
-#        U[:m, m:] = ZZ_matmul(np.ascontiguousarray(-U[:m, :m]), W)
+#        U[:m, m:] = ZZ_matmul_strided(-U[:m, :m], W)
 
 
 def is_weakly_lll_reduced(R, delta=.99):
@@ -177,6 +178,7 @@ def seysen_lll(B, args):
         max_enum_calls = 16 * n / lll_size
 
     set_num_cores(cores)
+    set_debug_flag(args.profile)
 
     # Set up logfile
     logfile = args.logfile
@@ -224,11 +226,11 @@ def seysen_lll(B, args):
         else:
             block_lll(R, B_red, U, delta, offset, lll_size)  # LLL
 
-        # TODO: remove this sanity-check to be quicker.
-        for i in range(offset, n, lll_size):
-            # Check whether R_[i:j) is really LLL-reduced.
-            j = min(n, i + lll_size)
-            assert is_lll_reduced(R[i:j, i:j], delta)
+        if args.profile:
+            for i in range(offset, n, lll_size):
+                # Check whether R_[i:j) is really LLL-reduced.
+                j = min(n, i + lll_size)
+                assert is_lll_reduced(R[i:j, i:j], delta)
 
         # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!

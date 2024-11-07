@@ -11,14 +11,19 @@ from libc.string cimport memcpy
 from openmp cimport omp_get_num_threads, omp_get_thread_num, omp_set_num_threads
 
 from decl cimport FT, ZZ, lll_reduce, deeplll_reduce, bkz_reduce
-from decl cimport eigen_init, eigen_matmul, eigen_right_matmul, eigen_right_matmul_strided
+from matmul import ZZ_right_matmul_strided
 
 
-# Taken from:
-# http://docs.cython.org/en/latest/src/tutorial/numpy.html#adding-types
-cnp.import_array()
+cnp.import_array()  # http://docs.cython.org/en/latest/src/tutorial/numpy.html#adding-types
 NP_FT = np.float64  # floating-point type
 NP_ZZ = np.int64  # integer type
+
+
+cdef int debug_size_reduction = 0
+
+
+def set_debug_flag(flag):
+    debug_size_reduction = 1 if flag else 0
 
 
 @cython.boundscheck(False)
@@ -47,16 +52,19 @@ def block_lll(
         # Step 1: run LLL on block [i, i + w).
         lll_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta)
 
-        for j in range(w):
-            memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
+        if debug_size_reduction == 0:
+            for j in range(w):
+                memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
     sig_off()
+
     # Step 2: Update U and B_red locally by multiplying with U_sub[block_id].
     for block_id in range(num_blocks):
         i = offset + block_size * block_id
         w = min(n - i, block_size)
-        eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
-        eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
+
+        ZZ_right_matmul_strided(U[:, i:i+w], U_sub[block_id, 0:w*w])
+        ZZ_right_matmul_strided(B_red[:, i:i+w], U_sub[block_id, 0:w*w])
 
 
 @cython.boundscheck(False)
@@ -85,16 +93,19 @@ def block_deep_lll(
         # Step 1: run DeepLLL on block [i, i + w).
         deeplll_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, depth)
 
-        for j in range(w):
-            memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
+        if debug_size_reduction == 0:
+            for j in range(w):
+                memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
     sig_off()
+
     # Step 2: Update U and B_red locally by multiplying with U_sub[block_id].
     for block_id in range(num_blocks):
         i = offset + block_size * block_id
         w = min(n - i, block_size)
-        eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
-        eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
+
+        ZZ_right_matmul_strided(U[:, i:i+w], U_sub[block_id, 0:w*w])
+        ZZ_right_matmul_strided(B_red[:, i:i+w], U_sub[block_id, 0:w*w])
 
 
 @cython.boundscheck(False)
@@ -123,42 +134,16 @@ def block_bkz(
         # Step 1: run BKZ on block [i, i + w).
         bkz_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, beta, max_tours)
 
-        for j in range(w):
-            memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
+        if debug_size_reduction == 0:
+            for j in range(w):
+                memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
     sig_off()
+
     # Step 2: Update U and B_red locally by multiplying with U_sub[block_id].
     for block_id in range(num_blocks):
         i = offset + block_size * block_id
         w = min(n - i, block_size)
-        eigen_right_matmul_strided(<ZZ*>&U[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
-        eigen_right_matmul_strided(<ZZ*>&B_red[0, i], <const ZZ*>&U_sub[block_id, 0], n, w, n)
 
-
-def set_num_cores(int num_cores) -> None:
-    omp_set_num_threads(num_cores)  # used by `prange` in block_X
-    eigen_init(num_cores)
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def ZZ_matmul(
-        cnp.ndarray[ZZ, ndim=2, mode='c'] A,
-        cnp.ndarray[ZZ, ndim=2, mode='c'] B) -> cnp.ndarray[ZZ]:
-    cdef int n = A.shape[0], m = A.shape[1], k = B.shape[1]
-    assert B.shape[0] == m, "Dimension mismatch"
-    cdef ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=NP_ZZ)
-
-    eigen_matmul(<const ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], &C[0, 0], n, m, k)
-    return np.asarray(C)
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def ZZ_right_matmul(
-        cnp.ndarray[ZZ, ndim=2, mode='c'] A,
-        cnp.ndarray[ZZ, ndim=2, mode='c'] B) -> None:
-    cdef int n = A.shape[0], m = A.shape[1]
-    assert B.shape[0] == m and B.shape[1] == m, "Dimension mismatch"
-
-    eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n, m)
+        ZZ_right_matmul_strided(U[:, i:i+w], U_sub[block_id, 0:w*w])
+        ZZ_right_matmul_strided(B_red[:, i:i+w], U_sub[block_id, 0:w*w])

@@ -22,7 +22,7 @@ for f in [Path('eigen3'), Path('/usr/include/eigen3'), Path.home().joinpath('.lo
         include_dirs += [str(f)]
         break
 else:
-    print("ERROR: seysen_lll requires the Eigen3 library!")
+    print("ERROR: Eigen3 library is required!")
     print("NOTE : Please run 'make eigen3'")
     exit(1)
 
@@ -55,13 +55,16 @@ else:
         '-DEIGEN_NO_DEBUG',
     ]
 
-extensions = [Extension(
-    name="seysen_lll",
-    sources=["core/seysen_lll.pyx"],
-    include_dirs=include_dirs,
-    extra_compile_args=compile_args,
-    extra_link_args=link_args,
-)]
+opts = {
+    'include_dirs': include_dirs,
+    'extra_compile_args': compile_args,
+    'extra_link_args': link_args
+}
+
+extensions = [
+    Extension(name="matmul", sources=["core/matmul.pyx"], **opts),
+    Extension(name="lattice_reduction", sources=["core/lattice_reduction.pyx"], **opts),
+]
 
 setup(
     ext_modules=cythonize(extensions, language_level="3", build_dir='build/cpp'),

@@ -11,6 +11,9 @@ cdef extern from "block_lll.cpp":
 
 cdef extern from "eigen_matmul.cpp":
     void eigen_init(int num_cores) noexcept nogil
-    void eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k) noexcept nogil
-    void eigen_right_matmul(ZZ *a, const ZZ *b, int n, int m) noexcept nogil
-    void eigen_right_matmul_strided(ZZ *a, const ZZ *b, int n, int m, int stride_a) noexcept nogil
+
+    void eigen_matmul[T](const T *a, const T *b, T *c, int n, int m, int k) noexcept nogil
+    void eigen_matmul[T](const T *a, const T *b, T *c, int n, int m, int k, int stride_a) noexcept nogil
+
+    void eigen_right_matmul[T](T *a, const T *b, int n, int m) noexcept nogil
+    void eigen_right_matmul[T](T *a, const T *b, int n, int m, int stride_a) noexcept nogil
