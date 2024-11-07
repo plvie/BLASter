@@ -1,4 +1,5 @@
 # distutils: language = c++
+
 cdef extern from "types.hpp":
     int MAX_ENUM_N
     ctypedef double FT # floating-point type

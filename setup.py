@@ -7,13 +7,7 @@ import numpy as np
 
 
 # Make sure OpenMP is used in Cython and Eigen.
-if platform.startswith("win"):
-    # Windows:
-    openmp_arg = '/openmp'
-else:
-    # Linux/OSX:
-    openmp_arg = '-fopenmp'
-
+openmp_arg = '/openmp' if platform.startswith("win") else '-fopenmp'
 include_dirs = [np.get_include()]
 
 # Look for the Eigen library in `/usr/include` and `~/.local/include`.
@@ -34,9 +28,7 @@ compile_args = [
 ]
 
 # Link with extra arguments
-link_args = [
-    openmp_arg,
-]
+link_args = [openmp_arg]
 
 if '--cython-gdb' in argv:
     # Debug arguments
@@ -55,16 +47,13 @@ else:
         '-DEIGEN_NO_DEBUG',
     ]
 
-opts = {
-    'include_dirs': include_dirs,
-    'extra_compile_args': compile_args,
-    'extra_link_args': link_args
-}
-
-extensions = [
-    Extension(name="matmul", sources=["core/matmul.pyx"], **opts),
-    Extension(name="lattice_reduction", sources=["core/lattice_reduction.pyx"], **opts),
-]
+extensions = [Extension(
+    name="seysen_lll",
+    sources=["core/seysen_lll.pyx"],
+    include_dirs=include_dirs,
+    extra_compile_args=compile_args,
+    extra_link_args=link_args
+)]
 
 setup(
     ext_modules=cythonize(extensions, language_level="3", build_dir='build/cpp'),

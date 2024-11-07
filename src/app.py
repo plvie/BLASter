@@ -61,7 +61,7 @@ def __main__():
             '--beta', '-b', type=int, default=0,
             help='Blocksize used within BKZ. 0 if not desired.')
     parser.add_argument(
-            '--num-tours', '-t', type=int, default=0,
+            '--num-tours', '-t', type=int, default=8,
             help='Maximum number of tours allowed to perform. 0 if unlimited.')
 
     # Parse the command line arguments

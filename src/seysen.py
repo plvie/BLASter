@@ -9,8 +9,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import ArtistAnimation, PillowWriter
 
-from lattice_reduction import block_lll, block_deep_lll, block_bkz, set_debug_flag
-from matmul import set_num_cores, ZZ_matmul_strided, ZZ_right_matmul, FT_matmul
+from seysen_lll import set_debug_flag, set_num_cores, \
+        block_lll, block_deep_lll, block_bkz, \
+        ZZ_matmul_strided, ZZ_right_matmul, FT_matmul
 from stats import get_profile, rhf, slope, potential
 
 
@@ -172,7 +173,7 @@ def seysen_lll(B, args):
     delta, cores, verbose = args.delta, args.cores, args.verbose
     lll_size = min(max(2, args.LLL), n)
     depth = args.depth  # Deep-LLL params
-    beta, num_tours = args.beta, args.num_tours or 8  # BKZ params
+    beta, num_tours = args.beta, args.num_tours  # BKZ params
     tours_done, cur_front = 0, 0
 
     set_num_cores(cores)

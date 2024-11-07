@@ -141,14 +141,10 @@ void swap_basis_vectors(const int N, FT *R, ZZ *U, const int k)
  * LLL reduction
  ******************************************************************************/
 
-/*
- * Performs LLL reduction on b_0, ..., b_{limit_k - 1}.
- */
-inline
-void internal_lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int limit_k)
+void _lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int limit_k)
 {
 	// Loop invariant: [0, k) is LLL-reduced (size-reduced and Lagrange reduced).
-	for (int k = 1; k < limit_k; ) {
+	for (int k = 1; k < N; ) {
 		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
 		for (int i = k - 1; i >= 0; --i) {
 			size_reduce(N, R, U, i, k);
@@ -168,6 +164,9 @@ void internal_lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int li
 	}
 }
 
+/*
+ * Performs LLL reduction on b_0, ..., b_{limit_k - 1}.
+ */
 void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 {
 	// Initialize U with the identity matrix
@@ -176,26 +175,17 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 		UU(i, i) = 1;
 	}
 
-	// Call internal LLL function
-	internal_lll_reduce(N, R, U, delta, N);
+	_lll_reduce(N, R, U, delta, N);
 }
 
 /*******************************************************************************
  * LLL reduction with deep insertions
  ******************************************************************************/
-void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, int depth)
+inline
+void _deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth, const int limit_k)
 {
-	// If 'depth' is not supplied, set it to N.
-	if (depth <= 0) {
-		depth = N;
-	}
-
-	// Note: first running 'standard' LLL, before performing deepLLL is much faster on average.
-	// [1] https://doi.org/10.1007/s10623-014-9918-8
-	lll_reduce(N, R, U, delta);
-
 	// Loop invariant: [0, k) is (depth-deep)LLL-reduced (size-reduced and Lagrange reduced).
-	for (int k = 1; k < N; ) {
+	for (int k = 1; k < limit_k; ) {
 		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
 		for (int i = k - 1; i >= 0; i--) {
 			size_reduce(N, R, U, i, k);
@@ -228,6 +218,17 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, int depth)
 
 		if (!swap_performed) k++;
 	}
+
+}
+
+void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
+{
+	// If 'depth' is not supplied, set it to N.
+	// Note: first running 'standard' LLL, before performing deepLLL is much faster on average.
+	// [1] https://doi.org/10.1007/s10623-014-9918-8
+	lll_reduce(N, R, U, delta);
+
+	_deeplll_reduce(N, R, U, delta, depth > 0 ? depth : N, N);
 }
 
 /*******************************************************************************
@@ -256,7 +257,7 @@ FT gh_squared(int dimension, FT log_volume)
  * put the result somewhere in the basis where the coefficient is +1/-1, and
  * run LLL on b_1, ..., b_{i + w}.
  */
-bool internal_svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
+bool svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
 {
 	int h = i + w;
 	if (h < N) h++;
@@ -284,7 +285,7 @@ bool internal_svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *s
 
 		// [3] Algorithm 1, line 8:
 		// LLL-reduce the next block before enumeration.
-		internal_lll_reduce(N, R, U, delta, h);
+		_deeplll_reduce(N, R, U, delta, 4, h);
 		return false;
 	}
 
@@ -321,7 +322,7 @@ bool internal_svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *s
 
 	// 8. Run LLL on [0, h).
 	// [3] Algorithm 1, line 6
-	internal_lll_reduce(N, R, U, delta, h);
+	_deeplll_reduce(N, R, U, delta, 4, h);
 
 	return true;
 }
@@ -343,7 +344,7 @@ void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta)
 	// Perform a tour.
 	for (int i = 0, w = beta; i + 2 <= N; i++) {
 		// Solve SVP on block [i, i + w).
-		internal_svp(N, R, U, delta, i, w, sol);
+		svp(N, R, U, delta, i, w, sol);
 
 		// Decrease the blocksize once we reach the end, because that part is HKZ-reduced.
 		if (i + w == N) w--;
