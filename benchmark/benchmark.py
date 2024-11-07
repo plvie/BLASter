@@ -40,7 +40,8 @@ def run_seysen_lll(m, q, seed, path):
 
 def run_seysen_deeplll(m, q, seed, path, depth):
     logfile = f"logs/deeplll_d{depth}_{m}_{q}_{seed}.csv"
-    result = run_command(f"{cmd_seysen} -i {path} -l {logfile} -d{depth}")
+    outfile = path.replace('input/', f'output/d{depth}_')
+    result = run_command(f"{cmd_seysen} -i {path} -o {outfile} -l {logfile} -d{depth}")
     if result.returncode != 0:
         print(result.stderr)
         os.remove(logfile)
