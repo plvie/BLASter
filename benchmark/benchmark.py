@@ -11,7 +11,7 @@ mqs = [
     (128, 631),  # latticegen q 2 1 10 p
     (256, 829561),  # latticegen q 2 1 20 p
     (512, 968665207),  # latticegen q 2 1 30 p
-    (1024, 829561),  # latticegen q 2 1 20 p
+    # (1024, 829561),  # latticegen q 2 1 20 p
 ]
 seeds = range(10)
 cmd_seysen = "../python3 ../src/app.py -q"
@@ -31,7 +31,7 @@ def gen_lattice(m, q, seed, path):
 
 
 def run_seysen_lll(m, q, seed, path):
-    logfile = f"logs/lll_{m}_{q}_{seed}.csv"
+    logfile = f"../logs/lll_{m}_{q}_{seed}.csv"
     result = run_command(f"{cmd_seysen} -i {path} -l {logfile}")
     if result.returncode != 0:
         print(result.stderr)
@@ -39,49 +39,33 @@ def run_seysen_lll(m, q, seed, path):
 
 
 def run_seysen_deeplll(m, q, seed, path, depth):
-    logfile = f"logs/deeplll_d{depth}_{m}_{q}_{seed}.csv"
-    outfile = path.replace('input/', f'output/d{depth}_')
-    result = run_command(f"{cmd_seysen} -i {path} -o {outfile} -l {logfile} -d{depth}")
+    logfile = f"../logs/deeplll{depth}_{m}_{q}_{seed}.csv"
+    # outfile = path.replace('input/', f'output/d{depth}_')
+    # result = run_command(f"{cmd_seysen} -i {path} -o {outfile} -l {logfile} -d{depth}")
+    result = run_command(f"{cmd_seysen} -i {path} -l {logfile} -d{depth}")
     if result.returncode != 0:
         print(result.stderr)
         os.remove(logfile)
 
 
-def run_seysen_bkz(m, q, seed, path, beta):
-    logfile = f"logs/bkz_b{beta}_{m}_{q}_{seed}.csv"
-    result = run_command(f"{cmd_seysen} -i {path} -l {logfile} -b{beta}")
+def run_seysen_bkz(m, q, seed, path, beta, bkz_size):
+    logfile = f"../logs/bkz{beta}_{m}_{q}_{seed}.csv"
+    result = run_command(f"{cmd_seysen} -i {path} -l {logfile} -b{beta} -s{bkz_size}")
     if result.returncode != 0:
         print(result.stderr)
         os.remove(logfile)
 
 
 def run_flatter(m, q, seed, path, num_threads):
-    flogfile = f"flatter_logs/{m}_{q}_{seed}.log"
+    flogfile = f"../logs-flatter/{m}_{q}_{seed}.log"
     cmd = f"OMP_NUM_THREADS={num_threads} FLATTER_LOG={flogfile} ~/.local/bin/flatter -q {path}"
     result = run_command(cmd)
     if result.returncode != 0:
         print(result.stderr)
         exit(1)
 
-    plogfile = f"logs/flatter_{m}_{q}_{seed}.csv"
+    plogfile = f"../logs/flatter_{m}_{q}_{seed}.csv"
     convert_logfiles(flogfile, plogfile)
-
-
-def extract_times(time_output):
-    """
-    Extract real time, user time and system time from stdout,
-    when timing a command with `time [...]`.
-    """
-    lines = time_output.split('\n')
-    return lines[1][5:-1], lines[2][5:-1], lines[3][4:-1]
-
-
-def benchmark(cmd):
-    result = subprocess.run(cmd, capture_output=True, shell=True, text=True)
-    if result.returncode != 0:
-        print(result.stderr)
-        exit(1)
-    return ', '.join(extract_times(result.stderr))
 
 
 def __main__():
@@ -110,10 +94,11 @@ def __main__():
             for lat in lattices:
                 run_seysen_deeplll(*lat, depth)
         elif arg == 'bkz':
-            assert 2 + i < len(sys.argv), "beta param expected!"
+            assert 3 + i < len(sys.argv), "beta & bkz-size param expected!"
             beta = int(sys.argv[2 + i])
+            bkz_size = int(sys.argv[3 + i])
             for lat in lattices:
-                run_seysen_bkz(*lat, beta)
+                run_seysen_bkz(*lat, beta, bkz_size)
         elif arg == 'flatter':
             assert 2 + i < len(sys.argv), "num_threads param expected!"
             num_threads = int(sys.argv[2 + i])
@@ -124,7 +109,7 @@ def __main__():
         has_cmd = has_cmd or is_cmd
 
     if not has_cmd:
-        print(f"Usage: {sys.argv[0]} [dim d|lattices|lll|deeplll `depth`|bkz `beta`|flatter `num_threads`]")
+        print(f"Usage: {sys.argv[0]} [dim d|lattices|lll|deeplll `depth`|bkz `beta` `bkz-size`|flatter `num_threads`]")
 
 
 if __name__ == "__main__":

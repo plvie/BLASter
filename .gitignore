@@ -26,5 +26,5 @@ __pycache__
 /cysignals_crash_logs/
 
 # Benchmarks generate big logs
-/benchmark/logs/
-/benchmark/flatter_logs/
+/logs/
+/logs-flatter/
