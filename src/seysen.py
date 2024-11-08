@@ -154,7 +154,8 @@ def is_lll_reduced(R, delta=.99):
     return is_weakly_lll_reduced(R, delta) and is_size_reduced(R)
 
 
-def lll_reduce(B, U, U_seysen, lll_size, delta, tstart, tprof, verbose, logfile=None, anim=None, depth=False):
+def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
+               tprof, tracers, check_R):
     """
     Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
@@ -167,15 +168,16 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, tstart, tprof, verbose, logfile=
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        if anim:
-            anim['artists'].append(anim['ax'].plot(range(n), get_profile(R, True), color="blue"))
+        prof = get_profile(R, True)
+        for tracer in tracers.values():
+            tracer(tprof.num_iterations, prof)
 
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
         offset = lll_size // 2 if offset == 0 else 0
         red_fn(R, B, U, delta, offset, lll_size)  # LLL or Deep-LLL
 
-        if verbose:
+        if check_R:
             for i in range(offset, n, lll_size):
                 j = min(n, i + lll_size)
                 # Check whether R_[i:j) is really LLL-reduced.
@@ -196,20 +198,76 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, tstart, tprof, verbose, logfile=
         ZZ_right_matmul(U, U_seysen)
         ZZ_right_matmul(B, U_seysen)
 
+        # Step 6: Check whether the basis is weakly-LLL reduced.
+        t6 = perf_counter_ns()
+
+        is_reduced = is_weakly_lll_reduced(R, delta)
+        tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
+
+
+def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
+               beta, bkz_tours, bkz_size, tprof, tracers, check_R):
+    """
+    Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
+    If `depth` is supplied, use deep insertions up to depth `depth`.
+    """
+    # BKZ parameters:
+    n, tours_done, cur_front = B.shape[1], 0, 0
+    assert beta <= bkz_size and bkz_size <= n
+
+    while tours_done < bkz_tours:
+        lll_reduce(B, U, U_seysen,
+                   lll_size, delta,
+                   depth,
+                   tprof, tracers, check_R)
+
+        # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
+        t1 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+
+        # Step 2: Call BKZ concurrently on small blocks!
+        t2 = perf_counter_ns()
+        offset = (cur_front % bkz_size)
+        block_bkz(beta, R, B, U, delta, offset, bkz_size)
+
+        if check_R:
+            for i in range(offset, n, bkz_size):
+                j = min(n, i + bkz_size)
+                # Check whether R_[i:j) is really LLL-reduced.
+                assert is_lll_reduced(R[i:j, i:j], delta)
+
+        # Update the current location of the 'reduction front'
+        cur_front += (bkz_size - beta + 1)
+        if cur_front + beta > n:
+            cur_front = 0
+            tours_done += 1
+
+        # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
+        # Note: it does not destroy the bxb blocks, but everything above these: yes!
+        t3 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+
+        # Step 4: Seysen reduce the upper-triangular matrix R.
+        t4 = perf_counter_ns()
+        with np.errstate(all='raise'):
+            seysen_reduce_iterative(R, U_seysen)
+
+        # Step 5: Update B and U with transformation from Seysen.
+        t5 = perf_counter_ns()
+        ZZ_right_matmul(U, U_seysen)
+        ZZ_right_matmul(B, U_seysen)
+
+        # Step 6: Check whether the basis is weakly-LLL reduced.
         t6 = perf_counter_ns()
 
         tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
-        if verbose:
-            print('.', end='', file=stderr, flush=True)
-        if logfile:
-            walltime = (t6 - tstart) * 10**-9
-            prof = get_profile(R, True)
-            print(f'{tprof.num_iterations:4d},{walltime:.6f},{rhf(prof):8.6f},'
-                  f'{slope(prof):9.6f},{potential(prof):9.3f}',
-                  file=logfile)
 
-        # Step 6: Check whether the basis is weakly-LLL reduced.
-        is_reduced = is_weakly_lll_reduced(R, delta)
+        prof = get_profile(B)
+        for name, tracer in tracers.items():
+            if name == 'v':
+                print(f"E({tours_done}/{bkz_tours}, {cur_front}): slope={slope(prof):.6f}, rhf={rhf(prof):.6f}", file=stderr, flush=True)
+            else:
+                tracer(tprof.num_iterations, prof)
 
 
 def seysen_lll(B, args):
@@ -228,24 +286,31 @@ def seysen_lll(B, args):
 
     # Parse all arguments.
     # TODO: work with **kwargs?
-    delta, cores, verbose = args.delta, args.cores, args.verbose
+    delta, check_R = args.delta, bool(args.profile)
     lll_size = min(max(2, args.LLL), n)
 
-    # Deep-LLL parameters:
-    depth = args.depth
+    set_num_cores(args.cores)
+    set_debug_flag(check_R)
 
-    # BKZ parameters:
-    beta, num_tours, tours_done, cur_front = args.beta, args.num_tours, 0, 0
-    bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
-
-    set_num_cores(cores)
-    set_debug_flag(args.profile)
+    tracers = {}
+    if args.verbose:
+        def trace_print(_, __):
+            print('.', end="", file=stderr, flush=True)
+        tracers['v'] = trace_print
 
     # Set up logfile
     logfile = args.logfile
     if logfile:
+        tstart = perf_counter_ns()
         logfile = open(logfile, "w")
-        print('it,walltime,rhf,slope,potential', file=logfile)
+        print('it,walltime,rhf,slope,potential', file=logfile, flush=True)
+
+        def trace_logfile(it, prof):
+            walltime = (perf_counter_ns() - tstart) * 10**-9
+            print(f'{it:4d},{walltime:.6f},{rhf(prof):8.6f},{slope(prof):9.6f},'
+                  f'{potential(prof):9.3f}', file=logfile)
+
+        tracers['l'] = trace_logfile
 
     # Set up animation
     has_animation = bool(args.anim)
@@ -254,90 +319,33 @@ def seysen_lll(B, args):
         ax.set(xlim=[0, n])
         artists = []
 
-    # Reduction function to call in each iteration:
-    red_fn, red_char = block_lll, '.'  # LLL reduction
-    if depth:
-        red_fn = partial(block_deep_lll, depth)  # Deep-LLL
-    elif beta:
-        # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
-        # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
-        # before calling the SVP oracle.
-        red_fn = partial(block_deep_lll, 4)
+        def trace_anim(it, prof):
+            artists.append(ax.plot(range(n), prof, color="blue"))
+
+        tracers['a'] = trace_anim
 
     B_red = B.copy()
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
 
-    tstart = perf_counter_ns()
+    if not args.beta:
+        lll_reduce(B_red, U, U_seysen,
+                   lll_size, delta,  # LLL params
+                   args.depth,  # Deep-LLL params
+                   tprof, tracers, check_R)
+    else:
+        # BKZ parameters:
+        beta, bkz_tours = args.beta, args.bkz_tours
+        bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
 
-    # Keep running until the basis is LLL reduced.
-    # For BKZ: keep running until enumeration is called `num_tours` times.
-    while tours_done < num_tours if beta else not is_reduced:
-        # Step 1: QR-decompose B_red, and only store the upper-triangular matrix R.
-        t1 = perf_counter_ns()
-        R = np.linalg.qr(B_red, mode='r')
-        if has_animation:
-            artists.append(ax.plot(range(n), get_profile(R, True), color="blue"))
-
-        # Step 2: Call LLL concurrently on small blocks.
-        t2 = perf_counter_ns()
-        offset = lll_size // 2 if tprof.num_iterations % 2 == 0 else 0
-
-        if beta:
-            red_char = 'E' if is_reduced else '.'
-            if is_reduced:
-                offset = (cur_front % lll_size)
-                block_bkz(beta, R, B_red, U, delta, offset, bkz_size)
-                cur_front += (lll_size - beta + 1)
-                if cur_front >= n:
-                    cur_front -= n
-                    tours_done += 1
-            else:
-                # Perform `red_fn` before calling the enumeration code.
-                red_fn(R, B_red, U, delta, offset, lll_size)
-        else:
-            red_fn(R, B_red, U, delta, offset, lll_size)  # LLL or Deep-LLL
-
-        if args.profile:
-            block_size = bkz_size if red_char == 'E' else lll_size
-            for i in range(offset, n, block_size):
-                # Check whether R_[i:j) is really LLL-reduced.
-                j = min(n, i + block_size)
-                assert is_lll_reduced(R[i:j, i:j], delta)
-
-        # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
-        # Note: it does not destroy the bxb blocks, but everything above these: yes!
-        t3 = perf_counter_ns()
-        R = np.linalg.qr(B_red, mode='r')
-
-        # Step 4: Seysen reduce the upper-triangular matrix R.
-        t4 = perf_counter_ns()
-        with np.errstate(all='raise'):
-            seysen_reduce_iterative(R, U_seysen)
-
-        # Step 5: Update B_red and U with transformation from Seysen.
-        t5 = perf_counter_ns()
-        ZZ_right_matmul(U, U_seysen)
-        ZZ_right_matmul(B_red, U_seysen)
-
-        t6 = perf_counter_ns()
-
-        tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
-        if verbose:
-            print(red_char, end='', file=stderr, flush=True)
-        if logfile is not None:
-            walltime = (t6 - tstart) * 10**-9
-            prof = get_profile(R, True)
-            print(f'{tprof.num_iterations:4d},{walltime:.6f},{rhf(prof):8.6f},'
-                  f'{slope(prof):9.6f},{potential(prof):9.3f}',
-                  file=logfile)
-
-        # Step 6: Check whether the basis is weakly-LLL reduced.
-        if red_char == 'E':
-            # Force a global Deep-LLL cycle before the next SVP round.
-            is_reduced = False
-        else:
-            is_reduced = is_weakly_lll_reduced(R, delta)
+        # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
+        # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
+        # before calling the SVP oracle.
+        bkz_reduce(B_red, U, U_seysen,
+                   lll_size, delta,  # LLL params
+                   4,  # Deep-LLL params
+                   beta, bkz_tours, bkz_size,  # BKZ params
+                   tprof, tracers, check_R)
 
     # Close logfile
     if logfile:
@@ -345,7 +353,8 @@ def seysen_lll(B, args):
 
     # Save and/or show the animation
     if has_animation:
-        if verbose:
+        # Saving the animation takes a LONG time.
+        if args.verbose:
             print('\nOutputting animation...', file=stderr)
         fig.tight_layout()
         ani = ArtistAnimation(fig=fig, artists=artists, interval=200)

@@ -61,7 +61,7 @@ def __main__():
             '--beta', '-b', type=int, default=0,
             help='Blocksize used within BKZ. 0 if not desired.')
     parser.add_argument(
-            '--num-tours', '-t', type=int, default=8,
+            '--bkz-tours', '-t', type=int, default=8,
             help='Number of BKZ-tours to perform.')
     parser.add_argument(
             '--bkz-size', '-s', type=int, default=0,
