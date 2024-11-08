@@ -61,26 +61,13 @@ struct lattice_enum_t
 
 	FT _sigT[N][N];
 
-	fltrow_t _subsolL;
-	std::array<fltrow_t, N> _subsol;
+	// fltrow_t _subsolL;
+	// std::array<fltrow_t, N> _subsol;
 
 
 	lattice_enum_t()
 		: muT(), risq(), pr()
 	{
-	}
-
-	inline ZZ myround(double a)
-	{
-		return (ZZ)(round(a));
-	}
-	inline ZZ myround(float a)
-	{
-		return (ZZ)(roundf(a));
-	}
-	inline ZZ myround(long double a)
-	{
-		return (ZZ)(roundl(a));
 	}
 
 	inline void _update_AA()
@@ -109,13 +96,13 @@ struct lattice_enum_t
 		++_counts[i];
 #endif
 
-		if (findsubsols && li < _subsolL[i] && li != 0.0)
+		/* if (findsubsols && li < _subsolL[i] && li != 0.0)
 		{
 			_subsolL[i] = li;
 			_subsol[i][i] = xi;
 			for (int j = i + 1; j < N; ++j)
 				_subsol[i][j] = _x[j];
-		}
+		} */
 		if (li > _AA[i])
 			return;
 
@@ -169,13 +156,13 @@ struct lattice_enum_t
 		++_counts[i];
 #endif
 
-		if (findsubsols && li < _subsolL[i] && li != 0.0)
+		/* if (findsubsols && li < _subsolL[i] && li != 0.0)
 		{
 			_subsolL[i] = li;
 			_subsol[i][i] = xi;
 			for (int j = i + 1; j < N; ++j)
 				_subsol[i][j] = _x[j];
-		}
+		} */
 		if (li > _AA[i])
 			return;
 
@@ -237,9 +224,9 @@ struct lattice_enum_t
 		for (int j = 0; j < N; ++j)
 		{
 			std::fill(_sigT[j]+0, _sigT[j]+N, 0.0);
-			std::fill(_subsol[j].begin(), _subsol[j].end(), 0);
+			// std::fill(_subsol[j].begin(), _subsol[j].end(), 0);
 		}
-		_subsolL = risq;
+		// _subsolL = risq;
 
 		std::fill(_sol.begin(), _sol.end(), 0);
 		std::fill(_counts.begin(), _counts.end(), 0);
