@@ -35,12 +35,12 @@ def gaussian_heuristic(B):
 
 def rhf(profile):
     """
-    Return the root Hermite factor, given the profile of some basis, i.e.
-        rhf(B) = (||b_0|| / det(B)^{1/n})^{1/(n-1)}.
+    Return the n-th root Hermite factor, given the profile of some basis, i.e.
+        rhf(B) = (||b_0|| / det(B)^{1/n})^{1/n}.
     :param profile: profile belonging to some basis of some lattice
     """
     n = len(profile)
-    return 2.0**((profile[0] - sum(profile) / n) / (n - 1))
+    return 2.0**((profile[0] - sum(profile) / n) / n)
 
 
 def slope(profile):
