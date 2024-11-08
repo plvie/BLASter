@@ -2,7 +2,7 @@
 #include<cmath> // llround, sqrt
 
 #include "enumeration.cpp"
-#include "pruning_params.hpp"
+#include "pruning_params.cpp"
 
 extern "C" {
 	/*
@@ -71,8 +71,7 @@ extern "C" {
  *
  * Complexity: O(N)
  */
-inline
-void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
+inline void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
 {
 	if (number == 0) {
 		return;
@@ -94,8 +93,7 @@ void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
  *
  * Complexity: O(N)
  */
-inline
-void size_reduce(const int N, FT *R, ZZ *U, int i, int j)
+inline void size_reduce(const int N, FT *R, ZZ *U, int i, int j)
 {
 	ZZ quotient = llround(RR(i, j) / RR(i, i));
 	alter_basis(N, R, U, i, j, quotient);
@@ -107,7 +105,6 @@ void size_reduce(const int N, FT *R, ZZ *U, int i, int j)
  *
  * Complexity: O(N)
  */
-inline
 void swap_basis_vectors(const int N, FT *R, ZZ *U, const int k)
 {
 	// a. Perform Givens rotation on coordinates {k, k+1}, and update R.
@@ -134,13 +131,11 @@ void swap_basis_vectors(const int N, FT *R, ZZ *U, const int k)
 	for (int i = 0; i < N; i++) {
 		std::swap(UU(i, k), UU(i, k + 1));
 	}
-
 }
 
 /*******************************************************************************
  * LLL reduction
  ******************************************************************************/
-
 void _lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int limit_k)
 {
 	// Loop invariant: [0, k) is LLL-reduced (size-reduced and Lagrange reduced).
@@ -181,7 +176,6 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 /*******************************************************************************
  * LLL reduction with deep insertions
  ******************************************************************************/
-inline
 void _deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth, const int limit_k)
 {
 	// Loop invariant: [0, k) is (depth-deep)LLL-reduced (size-reduced and Lagrange reduced).
@@ -337,16 +331,17 @@ void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta)
 	if (beta <= 2) return;
 
 	if (beta > N) {
-		// Perform HKZ-reduction
-		beta = N;
-	}
-
-	// Perform a tour.
-	for (int i = 0, w = beta; i + 2 <= N; i++) {
-		// Solve SVP on block [i, i + w).
-		svp(N, R, U, delta, i, w, sol);
-
-		// Decrease the blocksize once we reach the end, because that part is HKZ-reduced.
-		if (i + w == N) w--;
+		// Perform one HKZ-tour.
+		// In the global picture, we only do this at the end of the basis!
+		for (int i = 0; i + 2 <= N; i++) {
+			// Solve SVP on block [i, N).
+			svp(N, R, U, delta, i, N - i, sol);
+		}
+	} else {
+		// Perform one BKZ-tour.
+		for (int i = 0, w = beta; i + w <= N; i++) {
+			// Solve SVP on block [i, i + w).
+			svp(N, R, U, delta, i, w, sol);
+		}
 	}
 }

@@ -43,22 +43,28 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningv
         }
     }
 
-    // initialize enumobj.risq and enumobj.pr
+    // initialize enumobj.risq
     for (int i = 0; i < N; ++i)
     {
         // risq[i] = ||bi*||^2
         enumobj.risq[i] = R[i*rowstride+i] * R[i*rowstride+i];
     }
 
+	// set the pruning vectors
+	if (pruningvector == nullptr)
+		for (int i = 0; i < N; i++)
+			enumobj.pr[i] = 1.0;
+	else
+		std::copy(&pruningvector[0], &pruningvector[N], &enumobj.pr[0]);
+
     // pad enumeration tree to MAX_ENUM_N dimension using virtual basis vectors of length above enumeration bound
     for (int i = N; i < MAX_ENUM_N; ++i)
     {
         // ensure these virtual basis vectors are never used
         enumobj.risq[i] = 2.0 * enumobj.risq[0]; // = 2 * ||b0*||^2
+		enumobj.pr[i] = 1.0;
     }
 
-	// set the pruning vectors
-	std::copy(&pruningvector[0], &pruningvector[N], &enumobj.pr[0]);
 	// set the initial norm bound
 	enumobj._A = enumeration_radius;
 

@@ -154,6 +154,64 @@ def is_lll_reduced(R, delta=.99):
     return is_weakly_lll_reduced(R, delta) and is_size_reduced(R)
 
 
+def lll_reduce(B, U, U_seysen, lll_size, delta, tstart, tprof, verbose, logfile=None, anim=None, depth=False):
+    """
+    Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
+    If `depth` is supplied, use deep insertions up to depth `depth`.
+    """
+    n, is_reduced, offset = B.shape[1], False, 0
+    red_fn = partial(block_deep_lll, depth) if depth else block_lll
+
+    # Keep running until the basis is LLL reduced.
+    while not is_reduced:
+        # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
+        t1 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+        if anim:
+            anim['artists'].append(anim['ax'].plot(range(n), get_profile(R, True), color="blue"))
+
+        # Step 2: Call LLL concurrently on small blocks.
+        t2 = perf_counter_ns()
+        offset = lll_size // 2 if offset == 0 else 0
+        red_fn(R, B, U, delta, offset, lll_size)  # LLL or Deep-LLL
+
+        if verbose:
+            for i in range(offset, n, lll_size):
+                j = min(n, i + lll_size)
+                # Check whether R_[i:j) is really LLL-reduced.
+                assert is_lll_reduced(R[i:j, i:j], delta)
+
+        # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
+        # Note: it does not destroy the bxb blocks, but everything above these: yes!
+        t3 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+
+        # Step 4: Seysen reduce the upper-triangular matrix R.
+        t4 = perf_counter_ns()
+        with np.errstate(all='raise'):
+            seysen_reduce_iterative(R, U_seysen)
+
+        # Step 5: Update B and U with transformation from Seysen.
+        t5 = perf_counter_ns()
+        ZZ_right_matmul(U, U_seysen)
+        ZZ_right_matmul(B, U_seysen)
+
+        t6 = perf_counter_ns()
+
+        tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
+        if verbose:
+            print('.', end='', file=stderr, flush=True)
+        if logfile:
+            walltime = (t6 - tstart) * 10**-9
+            prof = get_profile(R, True)
+            print(f'{tprof.num_iterations:4d},{walltime:.6f},{rhf(prof):8.6f},'
+                  f'{slope(prof):9.6f},{potential(prof):9.3f}',
+                  file=logfile)
+
+        # Step 6: Check whether the basis is weakly-LLL reduced.
+        is_reduced = is_weakly_lll_reduced(R, delta)
+
+
 def seysen_lll(B, args):
     """
     :param B: a basis, consisting of *column vectors*.
@@ -172,9 +230,13 @@ def seysen_lll(B, args):
     # TODO: work with **kwargs?
     delta, cores, verbose = args.delta, args.cores, args.verbose
     lll_size = min(max(2, args.LLL), n)
-    depth = args.depth  # Deep-LLL params
-    beta, num_tours = args.beta, args.num_tours  # BKZ params
-    tours_done, cur_front = 0, 0
+
+    # Deep-LLL parameters:
+    depth = args.depth
+
+    # BKZ parameters:
+    beta, num_tours, tours_done, cur_front = args.beta, args.num_tours, 0, 0
+    bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
 
     set_num_cores(cores)
     set_debug_flag(args.profile)
@@ -225,8 +287,8 @@ def seysen_lll(B, args):
             red_char = 'E' if is_reduced else '.'
             if is_reduced:
                 offset = (cur_front % lll_size)
-                block_bkz(beta, R, B_red, U, delta, offset, lll_size)
-                cur_front += (lll_size + 1 - (cur_front % 2)) // 2
+                block_bkz(beta, R, B_red, U, delta, offset, bkz_size)
+                cur_front += (lll_size - beta + 1)
                 if cur_front >= n:
                     cur_front -= n
                     tours_done += 1
@@ -237,9 +299,10 @@ def seysen_lll(B, args):
             red_fn(R, B_red, U, delta, offset, lll_size)  # LLL or Deep-LLL
 
         if args.profile:
-            for i in range(offset, n, lll_size):
+            block_size = bkz_size if red_char == 'E' else lll_size
+            for i in range(offset, n, block_size):
                 # Check whether R_[i:j) is really LLL-reduced.
-                j = min(n, i + lll_size)
+                j = min(n, i + block_size)
                 assert is_lll_reduced(R[i:j, i:j], delta)
 
         # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.

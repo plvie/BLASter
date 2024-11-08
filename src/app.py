@@ -62,7 +62,10 @@ def __main__():
             help='Blocksize used within BKZ. 0 if not desired.')
     parser.add_argument(
             '--num-tours', '-t', type=int, default=8,
-            help='Maximum number of tours allowed to perform. 0 if unlimited.')
+            help='Number of BKZ-tours to perform.')
+    parser.add_argument(
+            '--bkz-size', '-s', type=int, default=0,
+            help='Local blocksize used within BKZ. LLL-size if not given.')
 
     # Parse the command line arguments
     args = parser.parse_args()
@@ -73,7 +76,7 @@ def __main__():
 
     assert not args.depth or not args.beta, 'Cannot run combination of DeepLLL and BKZ!'
     if args.beta:
-        assert 2 * args.beta <= args.LLL, 'LLL blocksize is not large enough for BKZ!'
+        assert args.beta <= args.LLL, 'LLL blocksize is not large enough for BKZ!'
 
     # Read the basis from input (file)
     B = read_qary_lattice(args.input)
@@ -126,9 +129,9 @@ def __main__():
         prof = get_profile(B_red)
         slope_ = slope(prof)
         print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-              f'Hermite factor = {rhf(prof):.6f}^n, '
-              f'∥b_1∥ = {2.0**(prof[0]):.1f}, '
-              f'slope = {slope_:.5f}, delta = {2**(-slope_ / 2):.5f}',
+              f'Hermite factor = {rhf(prof):.6f}^n, '  # 'delta' in lattice-estimator
+              f'slope = {slope_:.5f}, '
+              f'∥b_1∥ = {2.0**prof[0]:.1f}',
               file=stderr)
 
     # Assert that applying U on the basis B indeed gives the reduced basis B_red.
