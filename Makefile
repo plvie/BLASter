@@ -13,7 +13,7 @@ all: cython
 
 clean:
 	$(PYTHON) setup.py clean
-	rm -rf build
+	rm -rf build cysignals_crash_logs
 
 # Run
 cython:
