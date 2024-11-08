@@ -14,6 +14,7 @@ mqs = [
     (1024, 829561),  # latticegen q 2 1 20 p
 ]
 seeds = range(10)
+cmd_seysen = "../python3 ../src/app.py -q"
 
 
 def run_command(cmd):
@@ -29,17 +30,25 @@ def gen_lattice(m, q, seed, path):
         exit(1)
 
 
-def run_seysenlll(m, q, seed, path):
+def run_seysen_lll(m, q, seed, path):
     logfile = f"logs/lll_{m}_{q}_{seed}.csv"
-    result = run_command(f"../src/app.py -pqvi {path} --logfile {logfile}")
+    result = run_command(f"{cmd_seysen} -i {path} -l {logfile}")
     if result.returncode != 0:
         print(result.stderr)
         os.remove(logfile)
 
 
-def run_seysendeeplll(m, q, seed, path, depth):
+def run_seysen_deeplll(m, q, seed, path, depth):
     logfile = f"logs/deeplll_d{depth}_{m}_{q}_{seed}.csv"
-    result = run_command(f"../src/app.py -pqvi {path} --depth {depth} --logfile {logfile}")
+    result = run_command(f"{cmd_seysen} -i {path} -l {logfile} -d{depth}")
+    if result.returncode != 0:
+        print(result.stderr)
+        os.remove(logfile)
+
+
+def run_seysen_bkz(m, q, seed, path, beta):
+    logfile = f"logs/bkz_b{beta}_{m}_{q}_{seed}.csv"
+    result = run_command(f"{cmd_seysen} -i {path} -l {logfile} -b{beta}")
     if result.returncode != 0:
         print(result.stderr)
         os.remove(logfile)
@@ -91,14 +100,19 @@ def __main__():
         elif arg == 'lattices':
             for lat in lattices:
                 gen_lattice(*lat)
-        elif arg == 'seysen':
+        elif arg == 'lll':
             for lat in lattices:
-                run_seysenlll(*lat)
-        elif arg == 'depth':
+                run_seysen_lll(*lat)
+        elif arg == 'deeplll':
             assert 2 + i < len(sys.argv), "depth param expected!"
             depth = int(sys.argv[2 + i])
             for lat in lattices:
-                run_seysendeeplll(*lat, depth)
+                run_seysen_deeplll(*lat, depth)
+        elif arg == 'bkz':
+            assert 2 + i < len(sys.argv), "beta param expected!"
+            beta = int(sys.argv[2 + i])
+            for lat in lattices:
+                run_seysen_bkz(*lat, beta)
         elif arg == 'flatter':
             assert 2 + i < len(sys.argv), "num_threads param expected!"
             num_threads = int(sys.argv[2 + i])
@@ -109,7 +123,7 @@ def __main__():
         has_cmd = has_cmd or is_cmd
 
     if not has_cmd:
-        print(f"Usage: {sys.argv[0]} [dim d|lattices|seysen|depth d|flatter num_threads]")
+        print(f"Usage: {sys.argv[0]} [dim d|lattices|lll|deeplll `depth`|bkz `beta`|flatter `num_threads`]")
 
 
 if __name__ == "__main__":

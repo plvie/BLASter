@@ -183,8 +183,7 @@ def seysen_lll(B, args):
     logfile = args.logfile
     if logfile:
         logfile = open(logfile, "w")
-        # TT: total wall time used by SeysenLLL
-        print('it,   TT,       rhf,      slope,     potential', file=logfile)
+        print('it,walltime,rhf,slope,potential', file=logfile)
 
     # Set up animation
     has_animation = bool(args.anim)
@@ -264,14 +263,18 @@ def seysen_lll(B, args):
         if verbose:
             print(red_char, end='', file=stderr, flush=True)
         if logfile is not None:
-            TT = (t6 - tstart) * 10**-9
+            walltime = (t6 - tstart) * 10**-9
             prof = get_profile(R, True)
-            print(f'{tprof.num_iterations:4d}, {TT:.6f}, {rhf(prof):8.6f}, {slope(prof):9.6f}, '
-                  f'{potential(prof):9.3f}',
+            print(f'{tprof.num_iterations:4d},{walltime:.6f},{rhf(prof):8.6f},'
+                  f'{slope(prof):9.6f},{potential(prof):9.3f}',
                   file=logfile)
 
         # Step 6: Check whether the basis is weakly-LLL reduced.
-        is_reduced = is_weakly_lll_reduced(R, delta)
+        if red_char == 'E':
+            # Force a global Deep-LLL cycle before the next SVP round.
+            is_reduced = False
+        else:
+            is_reduced = is_weakly_lll_reduced(R, delta)
 
     # Close logfile
     if logfile:
