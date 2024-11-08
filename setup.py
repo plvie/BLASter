@@ -33,6 +33,7 @@ link_args = [openmp_arg]
 if '--cython-gdb' in argv:
     # Debug arguments
     debug_args = [
+        '-O1',
         '-fsanitize=address,undefined',
         '-g',
         '-fno-omit-frame-pointer',

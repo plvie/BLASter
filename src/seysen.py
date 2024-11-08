@@ -238,7 +238,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         # Update the current location of the 'reduction front'
         cur_front += (bkz_size - beta + 1)
-        if cur_front + beta > n:
+        if cur_front >= n:
             cur_front = 0
             tours_done += 1
 
@@ -264,8 +264,10 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         prof = get_profile(B)
         for name, tracer in tracers.items():
+            # Skip the '.', print more useful information!
             if name == 'v':
-                print(f"E({tours_done}/{bkz_tours}, {cur_front}): slope={slope(prof):.6f}, rhf={rhf(prof):.6f}", file=stderr, flush=True)
+                print(f"E({tours_done}/{bkz_tours}, {cur_front}): slope={slope(prof):.6f}"
+                      f", rhf={rhf(prof):.6f}", file=stderr, flush=True)
             else:
                 tracer(tprof.num_iterations, prof)
 

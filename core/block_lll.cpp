@@ -246,10 +246,21 @@ FT gh_squared(int dimension, FT log_volume)
 	return exp(2.0 * (log_gamma + log_volume) / dimension) / M_PI;
 }
 
+FT safe_gh_squared(int dim, FT log_volume)
+{
+	// Loosely based on Figure 2 from [3]:
+	FT gh2 = gh_squared(dim, log_volume);
+	FT gh_factor = std::max(1.05, std::min(2.0, 1.0 + 4.0 / dim));
+	return gh2 * gh_factor * gh_factor;
+}
+
 /*
  * Solve SVP on b_[i, i + w), and
  * put the result somewhere in the basis where the coefficient is +1/-1, and
  * run LLL on b_1, ..., b_{i + w}.
+ *
+ * Based on Algorithm 1 from [3].
+ * [3] https://doi.org/10.1007/978-3-642-25385-0_1
  */
 bool svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
 {
@@ -260,8 +271,8 @@ bool svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
 	for (int j = 0; j < w; j++)
 		log_volume += log(RSQ(i + j, i + j));
 
-	// Find a solution that is shorter than current basis vector and of norm <1.2 GH (<2.0 GH for dim < 10)
-	FT expected_normsq = std::min((1023.0 / 1024) * RSQ(i, i), (w < 10 ? 4.0 : 1.44) * gh_squared(w, log_volume));
+	// Find a solution that is shorter than current basis vector and (1 + eps)·GH
+	FT expected_normsq = std::min((1023.0 / 1024) * RSQ(i, i), safe_gh_squared(w, log_volume));
 
 	// 1. Pick the pruning parameters for `pr[0 ... w - 1]`.
 	const FT *pr = get_pruning_coefficients(w);
