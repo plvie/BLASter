@@ -77,14 +77,14 @@ inline void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
 		return;
 	}
 
-	// R_j -= number * R_i.
+	// R_j += number * R_i.
 	for (int k = 0; k <= i; k++) {
-		RR(k, j) -= number * RR(k, i);
+		RR(k, j) += number * RR(k, i);
 	}
 
-	// U_i -= number * U_i.
+	// U_i += number * U_i.
 	for (int k = 0; k < N; k++) {
-		UU(k, j) -= number * UU(k, i);
+		UU(k, j) += number * UU(k, i);
 	}
 }
 /*
@@ -96,7 +96,7 @@ inline void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
 inline void size_reduce(const int N, FT *R, ZZ *U, int i, int j)
 {
 	ZZ quotient = llround(RR(i, j) / RR(i, i));
-	alter_basis(N, R, U, i, j, quotient);
+	alter_basis(N, R, U, i, j, -quotient);
 }
 
 /*
