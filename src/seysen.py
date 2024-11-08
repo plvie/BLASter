@@ -236,12 +236,6 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                 # Check whether R_[i:j) is really LLL-reduced.
                 assert is_lll_reduced(R[i:j, i:j], delta)
 
-        # Update the current location of the 'reduction front'
-        cur_front += (bkz_size - beta + 1)
-        if cur_front >= n:
-            cur_front = 0
-            tours_done += 1
-
         # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
@@ -270,6 +264,12 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                       f", rhf={rhf(prof):.6f}", file=stderr, flush=True)
             else:
                 tracer(tprof.num_iterations, prof)
+
+        # After printing: update the current location of the 'reduction front'
+        cur_front += (bkz_size - beta + 1)
+        if cur_front >= n:
+            cur_front = 0
+            tours_done += 1
 
 
 def seysen_lll(B, args):
