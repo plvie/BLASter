@@ -328,24 +328,27 @@ def seysen_lll(B, args):
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
 
-    if not args.beta:
-        lll_reduce(B_red, U, U_seysen,
-                   lll_size, delta,  # LLL params
-                   args.depth,  # Deep-LLL params
-                   tprof, tracers, check_R)
-    else:
-        # BKZ parameters:
-        beta, bkz_tours = args.beta, args.bkz_tours
-        bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
+    try:
+        if not args.beta:
+            lll_reduce(B_red, U, U_seysen,
+                       lll_size, delta,  # LLL params
+                       args.depth,  # Deep-LLL params
+                       tprof, tracers, check_R)
+        else:
+            # BKZ parameters:
+            beta, bkz_tours = args.beta, args.bkz_tours
+            bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
 
-        # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
-        # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
-        # before calling the SVP oracle.
-        bkz_reduce(B_red, U, U_seysen,
-                   lll_size, delta,  # LLL params
-                   4,  # Deep-LLL params
-                   beta, bkz_tours, bkz_size,  # BKZ params
-                   tprof, tracers, check_R)
+            # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
+            # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
+            # before calling the SVP oracle.
+            bkz_reduce(B_red, U, U_seysen,
+                       lll_size, delta,  # LLL params
+                       4,  # Deep-LLL params
+                       beta, bkz_tours, bkz_size,  # BKZ params
+                       tprof, tracers, check_R)
+    except KeyboardInterrupt:
+        pass
 
     # Close logfile
     if logfile:
