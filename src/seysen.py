@@ -22,12 +22,13 @@ class TimeProfile:
 
     def __init__(self):
         self.num_iterations = 0
-        self.time_qr = self.time_lll = self.time_seysen = self.time_matmul = 0
+        self.time_bkz = self.time_qr = self.time_lll = self.time_seysen = self.time_matmul = 0
 
-    def tick(self, t_qr, t_lll, t_seysen, t_matmul):
+    def tick(self, t_qr, t_lll, t_seysen, t_matmul, t_bkz=0):
         self.num_iterations += 1
         self.time_qr += t_qr
         self.time_lll += t_lll
+        self.time_bkz += t_bkz
         self.time_seysen += t_seysen
         self.time_matmul += t_matmul
 
@@ -35,6 +36,7 @@ class TimeProfile:
         return (f"Iterations: {self.num_iterations}\n"
                 f"Time QR factorization: {self.time_qr:18,d} ns\n"
                 f"Time LLL    reduction: {self.time_lll:18,d} ns\n"
+                f"Time BKZ    reduction: {self.time_bkz:18,d} ns\n"
                 f"Time Seysen reduction: {self.time_seysen:18,d} ns\n"
                 f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
 
@@ -254,7 +256,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 6: Check whether the basis is weakly-LLL reduced.
         t6 = perf_counter_ns()
 
-        tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
+        tprof.tick(t2 - t1 + t4 - t3, 0, t5 - t4, t6 - t5, t3 - t2)
 
         prof = get_profile(B)
         for name, tracer in tracers.items():
