@@ -66,6 +66,9 @@ def __main__():
     parser.add_argument(
             '--bkz-size', '-s', type=int, default=0,
             help='Local blocksize used within BKZ. LLL-size if not given.')
+    parser.add_argument(
+            '--bkz-prog', '-P', type=int, default=0,
+            help='Progressive blocksize increment for BKZ.')
 
     # Parse the command line arguments
     args = parser.parse_args()

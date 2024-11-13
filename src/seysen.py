@@ -263,7 +263,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         for name, tracer in tracers.items():
             # Skip the '.', print more useful information!
             if name == 'v':
-                print(f"E({tours_done}/{bkz_tours}, {cur_front}): slope={slope(prof):.6f}"
+                print(f"E(β:{beta},t:{tours_done}/{bkz_tours}, o:{cur_front}): slope={slope(prof):.6f}"
                       f", rhf={rhf(prof):.6f}", file=stderr, flush=True)
             else:
                 tracer(tprof.num_iterations, prof)
@@ -341,17 +341,23 @@ def seysen_lll(B, args):
                        tprof, tracers, check_R)
         else:
             # BKZ parameters:
-            beta, bkz_tours = args.beta, args.bkz_tours
+            if not args.bkz_prog:
+                betas = [args.beta]
+            else:
+                betas = range((args.beta % args.bkz_prog) + 32, args.beta + 1, args.bkz_prog)
+
+            bkz_tours = args.bkz_tours
             bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
 
             # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
             # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
             # before calling the SVP oracle.
-            bkz_reduce(B_red, U, U_seysen,
-                       lll_size, delta,  # LLL params
-                       4,  # Deep-LLL params
-                       beta, bkz_tours, bkz_size,  # BKZ params
-                       tprof, tracers, check_R)
+            for beta in betas:
+                bkz_reduce(B_red, U, U_seysen,
+                           lll_size, delta,  # LLL params
+                           4,  # Deep-LLL params
+                           beta, bkz_tours, bkz_size,  # BKZ params
+                           tprof, tracers, check_R)
     except KeyboardInterrupt:
         pass
 
