@@ -263,8 +263,9 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         for name, tracer in tracers.items():
             # Skip the '.', print more useful information!
             if name == 'v':
-                print(f"E(β:{beta},t:{tours_done}/{bkz_tours}, o:{cur_front}): slope={slope(prof):.6f}"
-                      f", rhf={rhf(prof):.6f}", file=stderr, flush=True)
+                print(f"\BKZ(β:{beta:3d},t:{tours_done:2d}/{bkz_tours:2d}, o:{cur_front:4d}): "
+                      f"slope={slope(prof):.6f}, rhf={rhf(prof):.6f}",
+                      end="", file=stderr, flush=True)
             else:
                 tracer(tprof.num_iterations, prof)
 
