@@ -33,12 +33,13 @@ class TimeProfile:
         self.time_matmul += t_matmul
 
     def __str__(self):
+        F = 1000000
         return (f"Iterations: {self.num_iterations}\n"
-                f"Time QR factorization: {self.time_qr:18,d} ns\n"
-                f"Time LLL    reduction: {self.time_lll:18,d} ns\n"
-                f"Time BKZ    reduction: {self.time_bkz:18,d} ns\n"
-                f"Time Seysen reduction: {self.time_seysen:18,d} ns\n"
-                f"Time Matrix Multipli.: {self.time_matmul:18,d} ns")
+                f"Time QR factorization: {self.time_qr//F:10,d} ms\n"
+                f"Time LLL    reduction: {self.time_lll//F:10,d} ms\n"
+                f"Time BKZ    reduction: {self.time_bkz//F:10,d} ms\n"
+                f"Time Seysen reduction: {self.time_seysen//F:10,d} ms\n"
+                f"Time Matrix Multipli.: {self.time_matmul//F:10,d} ms")
 
 
 def seysen_reduce_iterative(R, U):
