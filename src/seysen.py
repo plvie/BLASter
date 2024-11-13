@@ -356,7 +356,8 @@ def seysen_lll(B, args):
                 bkz_reduce(B_red, U, U_seysen,
                            lll_size, delta,  # LLL params
                            4,  # Deep-LLL params
-                           beta, bkz_tours, bkz_size,  # BKZ params
+                           beta, bkz_tours if beta==args.beta else 1,
+                           bkz_size,  # BKZ params
                            tprof, tracers, check_R)
     except KeyboardInterrupt:
         pass
