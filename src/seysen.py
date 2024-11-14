@@ -223,8 +223,8 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
     while tours_done < bkz_tours:
         lll_reduce(B, U, U_seysen,
-                   lll_size, delta,
-                   depth,
+                   lll_size, delta,  # LLL params
+                   depth,  # Deep-LLL params
                    tprof, tracers, check_R)
 
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
@@ -269,11 +269,18 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
-        cur_front += (bkz_size - beta + 1)
-        if cur_front >= n:
+        if cur_front + beta > n:
+            # HKZ-reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
+        else:
+            cur_front += (bkz_size - beta + 1)
 
+    # Perform a final LLL reduction at the end
+    lll_reduce(B, U, U_seysen,
+               lll_size, delta,  # LLL params
+               depth,  # Deep-LLL params
+               tprof, tracers, check_R)
 
 def seysen_lll(B, args):
     """
@@ -350,10 +357,13 @@ def seysen_lll(B, args):
             if not args.bkz_prog:
                 betas = [args.beta]
             else:
+                # Progressive-BKZ: start running BKZ-beta' for some `beta' >= 40`,
+                # then increase the blocksize beta' by `bkz_prog` and run BKZ-beta' again,
+                # and repeat this until `beta' = beta`.
                 betas = range(40 + ((args.beta - 40) % args.bkz_prog), args.beta + 1, args.bkz_prog)
 
             bkz_tours = args.bkz_tours
-            bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
+            bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else max(lll_size, args.beta)
 
             # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
             # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,

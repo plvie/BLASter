@@ -11,7 +11,7 @@
  *  Generated using the script pruner.py. 
  * 
  */
-const std::vector<FT> pruning_params[80/2 + 1] = {
+const std::vector<FT> pruning_params[MAX_ENUM_N/2 + 1] = {
     {}, // dummy values
 { 1.0000, 0.0001 }, // BKZ-2, p=1.000000
 { 1.0000, 0.7347, 0.4695, 0.0395 }, // BKZ-4, p=0.288170
@@ -56,6 +56,6 @@ const std::vector<FT> pruning_params[80/2 + 1] = {
 };
 
 const FT* get_pruning_coefficients(const int block_size) {
-	assert(2 <= block_size && block_size <= 64);
+	assert(2 <= block_size && block_size <= MAX_ENUM_N);
 	return &pruning_params[(block_size + 1) / 2][0];
 }
