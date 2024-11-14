@@ -37,7 +37,7 @@ class TimeProfile:
         return (f"Iterations: {self.num_iterations}\n"
                 f"Time QR factorization: {self.time_qr//F:10,d} ms\n"
                 f"Time LLL    reduction: {self.time_lll//F:10,d} ms\n"
-                f"Time BKZ    reduction: {self.time_bkz//F:10,d} ms\n"
+                + (f"Time BKZ    reduction: {self.time_bkz//F:10,d} ms\n" if self.time_bkz else "") +
                 f"Time Seysen reduction: {self.time_seysen//F:10,d} ms\n"
                 f"Time Matrix Multipli.: {self.time_matmul//F:10,d} ms")
 
@@ -171,9 +171,6 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        prof = get_profile(R, True)
-        for tracer in tracers.values():
-            tracer(tprof.num_iterations, prof)
 
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
@@ -206,6 +203,12 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         is_reduced = is_weakly_lll_reduced(R, delta)
         tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
+
+        # After time measurement:
+        prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
+        note = (f"DeepLLL-{depth}" if depth else "LLL", None)
+        for tracer in tracers.values():
+            tracer(tprof.num_iterations, prof, note)
 
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
@@ -259,15 +262,11 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         tprof.tick(t2 - t1 + t4 - t3, 0, t5 - t4, t6 - t5, t3 - t2)
 
-        prof = get_profile(B)
+        # After time measurement:
+        prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
+        note = (f"BKZ-{beta}", (beta, tours_done, bkz_tours, cur_front))
         for name, tracer in tracers.items():
-            # Skip the '.', print more useful information!
-            if name == 'v':
-                print(f"\nBKZ(β:{beta:3d},t:{tours_done:2d}/{bkz_tours:2d}, o:{cur_front:4d}): "
-                      f"slope={slope(prof):.6f}, rhf={rhf(prof):.6f}",
-                      end="", file=stderr, flush=True)
-            else:
-                tracer(tprof.num_iterations, prof)
+            tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
         cur_front += (bkz_size - beta + 1)
@@ -300,8 +299,14 @@ def seysen_lll(B, args):
 
     tracers = {}
     if args.verbose:
-        def trace_print(_, __):
-            print('.', end="", file=stderr, flush=True)
+        def trace_print(_, prof, note):
+            if note[0].startswith('BKZ'):
+                beta, tours_done, bkz_tours, cur_front = note[1]
+                print(f"\nBKZ(β:{beta:3d},t:{tours_done:2d}/{bkz_tours:2d}, o:{cur_front:4d}): "
+                      f"slope={slope(prof):.6f}, rhf={rhf(prof):.6f}",
+                      end="", file=stderr, flush=True)
+            else:
+                print('.', end="", file=stderr, flush=True)
         tracers['v'] = trace_print
 
     # Set up logfile
@@ -309,12 +314,12 @@ def seysen_lll(B, args):
     if logfile:
         tstart = perf_counter_ns()
         logfile = open(logfile, "w")
-        print('it,walltime,rhf,slope,potential', file=logfile, flush=True)
+        print('it,walltime,rhf,slope,potential,note', file=logfile, flush=True)
 
-        def trace_logfile(it, prof):
+        def trace_logfile(it, prof, note):
             walltime = (perf_counter_ns() - tstart) * 10**-9
             print(f'{it:4d},{walltime:.6f},{rhf(prof):8.6f},{slope(prof):9.6f},'
-                  f'{potential(prof):9.3f}', file=logfile)
+                  f'{potential(prof):9.3f},{note[0]}', file=logfile)
 
         tracers['l'] = trace_logfile
 
@@ -325,7 +330,7 @@ def seysen_lll(B, args):
         ax.set(xlim=[0, n])
         artists = []
 
-        def trace_anim(it, prof):
+        def trace_anim(it, prof, _):
             artists.append(ax.plot(range(n), prof, color="blue"))
 
         tracers['a'] = trace_anim
@@ -345,7 +350,7 @@ def seysen_lll(B, args):
             if not args.bkz_prog:
                 betas = [args.beta]
             else:
-                betas = range((args.beta % args.bkz_prog) + 32, args.beta + 1, args.bkz_prog)
+                betas = range(40 + ((args.beta - 40) % args.bkz_prog), args.beta + 1, args.bkz_prog)
 
             bkz_tours = args.bkz_tours
             bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else lll_size
