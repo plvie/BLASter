@@ -48,7 +48,7 @@ def __main__():
             '--delta', type=float, default=0.99,
             help='delta factor for Lovasz condition')
     parser.add_argument(
-            '--LLL', '-L', type=int, default=64,
+            '--lll_size', '-L', type=int, default=64,
             help='Size of blocks on which to call LLL/DeepLLL/BKZ locally & in parallel')
 
     # Parameters specific to DeepLLL:
@@ -58,16 +58,16 @@ def __main__():
 
     # Parameters specific to BKZ:
     parser.add_argument(
-            '--beta', '-b', type=int, default=0,
+            '--beta', '-b', type=int,
             help='Blocksize used within BKZ. 0 if not desired.')
     parser.add_argument(
             '--bkz-tours', '-t', type=int, default=8,
             help='Number of BKZ-tours to perform.')
     parser.add_argument(
-            '--bkz-size', '-s', type=int, default=0,
+            '--bkz-size', '-s', type=int,
             help='Local blocksize used within BKZ. LLL-size if not given.')
     parser.add_argument(
-            '--bkz-prog', '-P', type=int, default=0,
+            '--bkz-prog', '-P', type=int,
             help='Progressive blocksize increment for BKZ.')
 
     # Parse the command line arguments
@@ -75,11 +75,11 @@ def __main__():
 
     # Perform sanity checks
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'
-    assert args.LLL >= 2, 'LLL block size must be at least 2!'
+    assert args.lll_size >= 2, 'LLL block size must be at least 2!'
 
     assert not args.depth or not args.beta, 'Cannot run combination of DeepLLL and BKZ!'
     if args.beta:
-        assert args.beta <= args.LLL, 'LLL blocksize is not large enough for BKZ!'
+        assert args.beta <= args.lll_size, 'LLL blocksize is not large enough for BKZ!'
 
     # Read the basis from input (file)
     B = read_qary_lattice(args.input)
@@ -109,10 +109,10 @@ def __main__():
     # Re 1): Starting around dimension >500, there is a performance gain using multiple threads
     # Re 2): The program cannot use more cores in lattice reduction
     # than the number of blocks, so do not spawn more than this number.
-    args.cores = max(1, min(args.cores, ceil(n / args.LLL), cpu_count() // 2))
+    args.cores = max(1, min(args.cores, ceil(n / args.lll_size), cpu_count() // 2))
 
     # Perform Seysen-LLL reduction on basis B
-    U, B_red, tprof = seysen_lll(B, args)
+    U, B_red, tprof = seysen_lll(B, debug=args.profile, **vars(args))
 
     # Write B_red to the output file
     print_mat = args.output is not None

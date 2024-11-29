@@ -158,7 +158,7 @@ def is_lll_reduced(R, delta=.99):
 
 
 def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
-               tprof, tracers, check_R):
+               tprof, tracers, debug):
     """
     Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
@@ -177,7 +177,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         offset = lll_size // 2 if offset == 0 else 0
         red_fn(R, B, U, delta, offset, lll_size)  # LLL or Deep-LLL
 
-        if check_R:
+        if debug:
             for i in range(offset, n, lll_size):
                 j = min(n, i + lll_size)
                 # Check whether R_[i:j) is really LLL-reduced.
@@ -212,7 +212,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
 
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, bkz_size, tprof, tracers, check_R):
+               beta, bkz_tours, bkz_size, tprof, tracers, debug):
     """
     Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
@@ -225,7 +225,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         lll_reduce(B, U, U_seysen,
                    lll_size, delta,  # LLL params
                    depth,  # Deep-LLL params
-                   tprof, tracers, check_R)
+                   tprof, tracers, debug)
 
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
@@ -236,7 +236,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         offset = (cur_front % bkz_size)
         block_bkz(beta, R, B, U, delta, offset, bkz_size)
 
-        if check_R:
+        if debug:
             for i in range(offset, n, bkz_size):
                 j = min(n, i + bkz_size)
                 # Check whether R_[i:j) is really LLL-reduced.
@@ -280,32 +280,32 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     lll_reduce(B, U, U_seysen,
                lll_size, delta,  # LLL params
                depth,  # Deep-LLL params
-               tprof, tracers, check_R)
+               tprof, tracers, debug)
 
-def seysen_lll(B, args):
+def seysen_lll(
+        B, lll_size: int = 64, delta: float = 0.99, cores: int = 1, debug: bool = False,
+        verbose: bool = False, logfile: str = None, anim: str = None, depth: int = 0, **kwds
+):
     """
     :param B: a basis, consisting of *column vectors*.
-    :param args: arguments containing:
+    :param kwds: arguments containing:
         - delta: delta factor for Lagrange reduction,
         - cores: number of cores to use, and
-        - LLL:   the block-size for LLL.
-    :return: tuple (U, B · U, profile) where:
+        - LLL:   the block-size for LLL, and
+        - debug: whether or not to debug and print more output on time consumption.
+    :return: tuple (U, B · U, tprof) where:
         U: the transformation matrix such that B · U is LLL reduced,
         B · U: an LLL-reduced basis,
-        profile: TimeProfile object.
+        tprof: TimeProfile object.
     """
     n, is_reduced, tprof = B.shape[1], False, TimeProfile()
 
-    # Parse all arguments.
-    # TODO: work with **kwargs?
-    delta, check_R = args.delta, bool(args.profile)
-    lll_size = min(max(2, args.LLL), n)
-
-    set_num_cores(args.cores)
-    set_debug_flag(check_R)
+    lll_size = min(max(2, lll_size), n)
+    set_num_cores(cores)
+    set_debug_flag(debug)
 
     tracers = {}
-    if args.verbose:
+    if verbose:
         def trace_print(_, prof, note):
             if note[0].startswith('BKZ'):
                 beta, tours_done, bkz_tours, cur_front = note[1]
@@ -314,11 +314,12 @@ def seysen_lll(B, args):
                       end="", file=stderr, flush=True)
             else:
                 print('.', end="", file=stderr, flush=True)
+
         tracers['v'] = trace_print
 
     # Set up logfile
-    logfile = args.logfile
-    if logfile:
+    has_logfile = logfile is not None
+    if has_logfile:
         tstart = perf_counter_ns()
         logfile = open(logfile, "w")
         print('it,walltime,rhf,slope,potential,note', file=logfile, flush=True)
@@ -331,7 +332,7 @@ def seysen_lll(B, args):
         tracers['l'] = trace_logfile
 
     # Set up animation
-    has_animation = bool(args.anim)
+    has_animation = anim is not None
     if has_animation:
         fig, ax = plt.subplots()
         ax.set(xlim=[0, n])
@@ -342,56 +343,55 @@ def seysen_lll(B, args):
 
         tracers['a'] = trace_anim
 
-    B_red = B.copy()
+    B = B.copy()  # Do not modify B in-place, but work with a copy.
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
 
+    beta = kwds.get("beta")
     try:
-        if not args.beta:
-            lll_reduce(B_red, U, U_seysen,
+        if not beta:
+            lll_reduce(B, U, U_seysen,
                        lll_size, delta,  # LLL params
-                       args.depth,  # Deep-LLL params
-                       tprof, tracers, check_R)
+                       depth,  # Deep-LLL params
+                       tprof, tracers, debug)
         else:
-            # BKZ parameters:
-            if not args.bkz_prog:
-                betas = [args.beta]
-            else:
-                # Progressive-BKZ: start running BKZ-beta' for some `beta' >= 40`,
-                # then increase the blocksize beta' by `bkz_prog` and run BKZ-beta' again,
-                # and repeat this until `beta' = beta`.
-                betas = range(40 + ((args.beta - 40) % args.bkz_prog), args.beta + 1, args.bkz_prog)
+            # Parse BKZ parameters:
+            bkz_tours = kwds.get("bkz_tours") or 1
+            bkz_size = min(max(beta, kwds.get("bkz_size", max(lll_size, beta))), n)
+            bkz_prog = kwds.get("bkz_prog") or beta
 
-            bkz_tours = args.bkz_tours
-            bkz_size = min(max(2, args.bkz_size), n) if args.bkz_size else max(lll_size, args.beta)
+            # Progressive-BKZ: start running BKZ-beta' for some `beta' >= 40`,
+            # then increase the blocksize beta' by `bkz_prog` and run BKZ-beta' again,
+            # and repeat this until `beta' = beta`.
+            betas = range(40 + ((beta - 40) % bkz_prog), beta + 1, bkz_prog)
 
             # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
             # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
             # before calling the SVP oracle.
-            for beta in betas:
-                bkz_reduce(B_red, U, U_seysen,
+            for beta_ in betas:
+                bkz_reduce(B, U, U_seysen,
                            lll_size, delta,  # LLL params
                            4,  # Deep-LLL params
-                           beta, bkz_tours if beta==args.beta else 1,
+                           beta_, bkz_tours if beta_ == beta else 1,
                            bkz_size,  # BKZ params
-                           tprof, tracers, check_R)
+                           tprof, tracers, debug)
     except KeyboardInterrupt:
-        pass
+        pass  # When interrupted, give the partially reduced basis.
 
     # Close logfile
-    if logfile:
+    if has_logfile:
         logfile.close()
 
     # Save and/or show the animation
     if has_animation:
         # Saving the animation takes a LONG time.
-        if args.verbose:
+        if verbose:
             print('\nOutputting animation...', file=stderr)
         fig.tight_layout()
         ani = ArtistAnimation(fig=fig, artists=artists, interval=200)
         # Generate 1920x1080 image:
         plt.gcf().set_size_inches(16, 9)
         # plt.show()
-        ani.save(args.anim, dpi=120, writer=PillowWriter(fps=5))
+        ani.save(anim, dpi=120, writer=PillowWriter(fps=5))
 
-    return U, B_red, tprof
+    return U, B, tprof
