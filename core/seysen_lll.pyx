@@ -22,22 +22,23 @@ NP_ZZ = np.int64  # integer type
 cdef int debug_size_reduction = 0
 
 
-def set_debug_flag(flag):
-    debug_size_reduction = 1 if flag else 0
+def set_debug_flag(int flag):
+    global debug_size_reduction
+    debug_size_reduction = flag
 
 
-def set_num_cores(int num_cores) -> None:
+def set_num_cores(int num_cores):
     omp_set_num_threads(num_cores)  # used by `prange` in block_X
     eigen_init(num_cores)
 
 
 # Lattice reduction
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def block_lll(
         cnp.ndarray[FT, ndim=2] R, cnp.ndarray[ZZ, ndim=2] B_red, cnp.ndarray[ZZ, ndim=2] U,
         FT delta, int offset, int block_size) -> None:
+    global debug_size_reduction
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
@@ -59,7 +60,7 @@ def block_lll(
         # Step 1: run LLL on block [i, i + w).
         lll_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta)
 
-        if debug_size_reduction == 0:
+        if debug_size_reduction != 0:
             for j in range(w):
                 memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
@@ -79,6 +80,7 @@ def block_lll(
 def block_deep_lll(int depth,
         cnp.ndarray[FT, ndim=2] R, cnp.ndarray[ZZ, ndim=2] B_red, cnp.ndarray[ZZ, ndim=2] U,
         FT delta, int offset, int block_size) -> None:
+    global debug_size_reduction
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
@@ -100,7 +102,7 @@ def block_deep_lll(int depth,
         # Step 1: run DeepLLL on block [i, i + w).
         deeplll_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, depth)
 
-        if debug_size_reduction == 0:
+        if debug_size_reduction != 0:
             for j in range(w):
                 memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 
@@ -120,6 +122,7 @@ def block_deep_lll(int depth,
 def block_bkz(int beta,
         cnp.ndarray[FT, ndim=2] R, cnp.ndarray[ZZ, ndim=2] B_red, cnp.ndarray[ZZ, ndim=2] U,
         FT delta, int offset, int block_size) -> None:
+    global debug_size_reduction
 
     # Variables
     cdef Py_ssize_t n = R.shape[0]
@@ -141,7 +144,7 @@ def block_bkz(int beta,
         # Step 1: run BKZ on block [i, i + w).
         bkz_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, beta)
 
-        if debug_size_reduction == 0:
+        if debug_size_reduction != 0:
             for j in range(w):
                 memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
 

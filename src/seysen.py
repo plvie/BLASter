@@ -302,7 +302,7 @@ def seysen_lll(
 
     lll_size = min(max(2, lll_size), n)
     set_num_cores(cores)
-    set_debug_flag(debug)
+    set_debug_flag(1 if debug else 0)
 
     tracers = {}
     if verbose:
