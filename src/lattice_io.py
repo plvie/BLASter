@@ -4,7 +4,7 @@ Read/write a matrix in fplll format, to/from numpy array.
 import numpy as np
 
 
-def read_qary_lattice(input_file):
+def read_qary_lattice(input_file=None):
     """
     Read a matrix from a file, or from stdin.
     :param input_file: file name, or when None, read from stdin.
