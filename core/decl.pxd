@@ -8,7 +8,7 @@ cdef extern from "types.hpp":
 cdef extern from "block_lll.cpp":
     void lll_reduce(const int N, FT *R, ZZ *U, const FT delta) noexcept nogil
     void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, int depth) noexcept nogil
-    void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta) noexcept nogil
+    void svp_reduce(const int N, FT *R, ZZ *U, const FT delta) noexcept nogil
 
 cdef extern from "eigen_matmul.cpp":
     void eigen_init(int num_cores) noexcept nogil

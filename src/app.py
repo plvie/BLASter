@@ -64,9 +64,6 @@ def __main__():
             '--bkz-tours', '-t', type=int, default=8,
             help='Number of BKZ-tours to perform.')
     parser.add_argument(
-            '--bkz-size', '-s', type=int,
-            help='Local blocksize used within BKZ. LLL-size if not given.')
-    parser.add_argument(
             '--bkz-prog', '-P', type=int,
             help='Progressive blocksize increment for BKZ.')
 

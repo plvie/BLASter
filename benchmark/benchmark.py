@@ -56,9 +56,9 @@ def run_seysen_bkz(m, q, seed, path, beta, bkz_size):
         os.remove(logfile)
 
 
-def run_seysen_prog_bkz(m, q, seed, path, beta, bkz_size, bkz_prog=1):
+def run_seysen_prog_bkz(m, q, seed, path, beta, bkz_prog=2):
     logfile = f"../logs/progbkz{beta}_{m}_{q}_{seed}.csv"
-    result = run_command(f"{cmd_seysen} -vi {path} -l {logfile} -b{beta} -s{bkz_size} -P{bkz_prog}")
+    result = run_command(f"{cmd_seysen} -i {path} -l {logfile} -b{beta} -P{bkz_prog} -t1")
     if result.returncode != 0:
         print(result.stderr)
         os.remove(logfile)
@@ -108,12 +108,10 @@ def __main__():
             for lat in lattices:
                 run_seysen_bkz(*lat, beta, bkz_size)
         elif arg == 'pbkz':
-            assert 4 + i < len(sys.argv), "beta & bkz-size param expected!"
+            assert 2 + i < len(sys.argv), "beta param expected!"
             beta = int(sys.argv[2 + i])
-            bkz_size = int(sys.argv[3 + i])
-            bkz_prog = int(sys.argv[4 + i])
             for lat in lattices:
-                run_seysen_prog_bkz(*lat, beta, bkz_size, bkz_prog)
+                run_seysen_prog_bkz(*lat, beta)
         elif arg == 'flatter':
             assert 2 + i < len(sys.argv), "num_threads param expected!"
             num_threads = int(sys.argv[2 + i])
@@ -125,7 +123,7 @@ def __main__():
 
     if not has_cmd:
         print(f"Usage: {sys.argv[0]} [dim d|lattices|lll|deeplll `depth`|bkz `beta` `bkz-size`|"
-              f"pbkz `beta` `bkz-size` `bkz-prog`|flatter `num_threads`]")
+              f"pbkz `beta`|flatter `num_threads`]")
 
 
 if __name__ == "__main__":

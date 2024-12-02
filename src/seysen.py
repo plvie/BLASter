@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import ArtistAnimation, PillowWriter
 
 from seysen_lll import set_debug_flag, set_num_cores, \
-        block_lll, block_deep_lll, block_bkz, \
+        block_lll, block_deep_lll, block_svp, \
         ZZ_matmul_strided, ZZ_right_matmul, FT_matmul
 from stats import get_profile, rhf, slope, potential
 
@@ -21,25 +21,20 @@ class TimeProfile:
     """
 
     def __init__(self):
+        self._strs = ["QR-decomp.", "LLL-red.", "BKZ-red.", "Seysen-red.", "Matrix-mul."]
         self.num_iterations = 0
-        self.time_bkz = self.time_qr = self.time_lll = self.time_seysen = self.time_matmul = 0
+        self.times = [0] * 5
+        # self.time_bkz = self.time_qr = self.time_lll = self.time_seysen = self.time_matmul = 0
 
-    def tick(self, t_qr, t_lll, t_seysen, t_matmul, t_bkz=0):
+    def tick(self, *times):
         self.num_iterations += 1
-        self.time_qr += t_qr
-        self.time_lll += t_lll
-        self.time_bkz += t_bkz
-        self.time_seysen += t_seysen
-        self.time_matmul += t_matmul
+        self.times = [x + y for x, y in zip(self.times, times)]
 
     def __str__(self):
-        F = 1000000
-        return (f"Iterations: {self.num_iterations}\n"
-                f"Time QR factorization: {self.time_qr//F:10,d} ms\n"
-                f"Time LLL    reduction: {self.time_lll//F:10,d} ms\n"
-                + (f"Time BKZ    reduction: {self.time_bkz//F:10,d} ms\n" if self.time_bkz else "") +
-                f"Time Seysen reduction: {self.time_seysen//F:10,d} ms\n"
-                f"Time Matrix Multipli.: {self.time_matmul//F:10,d} ms")
+        return (
+            f"Iterations: {self.num_iterations}\n" +
+           "\n".join(f"t_{{{s:11}}}={t/10**9:10.3f}s" for s, t in zip(self._strs, self.times) if t)
+       )
 
 
 def seysen_reduce_iterative(R, U):
@@ -202,7 +197,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         t6 = perf_counter_ns()
 
         is_reduced = is_weakly_lll_reduced(R, delta)
-        tprof.tick(t2 - t1 + t4 - t3, t3 - t2, t5 - t4, t6 - t5)
+        tprof.tick(t2 - t1 + t4 - t3, t3 - t2, 0, t5 - t4, t6 - t5)
 
         # After time measurement:
         prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
@@ -212,37 +207,27 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
 
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, bkz_size, tprof, tracers, debug):
+               beta, bkz_tours, tprof, tracers, debug):
     """
     Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
     """
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
-    assert beta <= bkz_size and bkz_size <= n
+
+    lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug)
 
     while tours_done < bkz_tours:
-        lll_reduce(B, U, U_seysen,
-                   lll_size, delta,  # LLL params
-                   depth,  # Deep-LLL params
-                   tprof, tracers, debug)
-
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
 
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
-        offset = (cur_front % bkz_size)
-        block_bkz(beta, R, B, U, delta, offset, bkz_size)
+        offset = (cur_front % beta)
+        block_svp(beta, R, B, U, delta, offset)
 
-        if debug:
-            for i in range(offset, n, bkz_size):
-                j = min(n, i + bkz_size)
-                # Check whether R_[i:j) is really LLL-reduced.
-                assert is_lll_reduced(R[i:j, i:j], delta)
-
-        # Step 3: QR-decompose again because LLL "destroys" the QR decomposition.
+        # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
@@ -257,10 +242,9 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         ZZ_right_matmul(U, U_seysen)
         ZZ_right_matmul(B, U_seysen)
 
-        # Step 6: Check whether the basis is weakly-LLL reduced.
         t6 = perf_counter_ns()
 
-        tprof.tick(t2 - t1 + t4 - t3, 0, t5 - t4, t6 - t5, t3 - t2)
+        tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
 
         # After time measurement:
         prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
@@ -269,18 +253,14 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
-        if cur_front + beta > n:
-            # HKZ-reduction was performed at the end, which is the end of a tour.
+        cur_front += 1
+        if cur_front + 2 >= n:
+            # We are at the end of a tour.
             cur_front = 0
             tours_done += 1
-        else:
-            cur_front += (bkz_size - beta + 1)
 
-    # Perform a final LLL reduction at the end
-    lll_reduce(B, U, U_seysen,
-               lll_size, delta,  # LLL params
-               depth,  # Deep-LLL params
-               tprof, tracers, debug)
+        # Perform a final LLL reduction at the end
+        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug)
 
 def seysen_lll(
         B, lll_size: int = 64, delta: float = 0.99, cores: int = 1, debug: bool = False,
@@ -308,10 +288,11 @@ def seysen_lll(
     if verbose:
         def trace_print(_, prof, note):
             if note[0].startswith('BKZ'):
-                beta, tours_done, bkz_tours, cur_front = note[1]
-                print(f"\nBKZ(β:{beta:3d},t:{tours_done:2d}/{bkz_tours:2d}, o:{cur_front:4d}): "
-                      f"slope={slope(prof):.6f}, rhf={rhf(prof):.6f}",
-                      end="", file=stderr, flush=True)
+                beta, tour, ntours, touridx = note[1]
+                if touridx % 10 == 0:
+                    print(f"\nBKZ(β:{beta:3d},t:{tour + 1:2d}/{ntours:2d}, o:{touridx:4d}): "
+                          f"slope={slope(prof):.6f}, rhf={rhf(prof):.6f}",
+                          end="", file=stderr, flush=True)
             else:
                 print('.', end="", file=stderr, flush=True)
 
@@ -350,14 +331,10 @@ def seysen_lll(
     beta = kwds.get("beta")
     try:
         if not beta:
-            lll_reduce(B, U, U_seysen,
-                       lll_size, delta,  # LLL params
-                       depth,  # Deep-LLL params
-                       tprof, tracers, debug)
+            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug)
         else:
             # Parse BKZ parameters:
             bkz_tours = kwds.get("bkz_tours") or 1
-            bkz_size = min(max(beta, kwds.get("bkz_size", max(lll_size, beta))), n)
             bkz_prog = kwds.get("bkz_prog") or beta
 
             # Progressive-BKZ: start running BKZ-beta' for some `beta' >= 40`,
@@ -369,12 +346,8 @@ def seysen_lll(
             # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
             # before calling the SVP oracle.
             for beta_ in betas:
-                bkz_reduce(B, U, U_seysen,
-                           lll_size, delta,  # LLL params
-                           4,  # Deep-LLL params
-                           beta_, bkz_tours if beta_ == beta else 1,
-                           bkz_size,  # BKZ params
-                           tprof, tracers, debug)
+                bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                           bkz_tours if beta_ == beta else 1, tprof, tracers, debug)
     except KeyboardInterrupt:
         pass  # When interrupted, give the partially reduced basis.
 
