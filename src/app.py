@@ -33,7 +33,7 @@ def __main__():
     parser.add_argument('--output', '-o', type=str, help='Output file (default=stdout)')
     parser.add_argument('--logfile', '-l', type=str, default=None, help='Logging file')
     parser.add_argument(
-            '--profile', '-p', action='store_true',
+            '--profile', '-p', action='store_true', dest='debug',
             help='Give information on the profile of the output basis')
     parser.add_argument(
             '--quiet', '-q', action='store_true',
@@ -49,6 +49,9 @@ def __main__():
     parser.add_argument(
             '--lll_size', '-L', type=int, default=64,
             help='Size of blocks on which to call LLL/DeepLLL/BKZ locally & in parallel')
+    parser.add_argument(
+            '--no-seysen', '-s', action='store_false', dest='use_seysen',
+            help='If supplied, size-reduction is used. Otherwise, Seysen-reduction is used.')
 
     # Parameters specific to DeepLLL:
     parser.add_argument(
@@ -66,13 +69,8 @@ def __main__():
             '--bkz-prog', '-P', type=int,
             help='Progressive blocksize increment for BKZ.')
 
-    parser.add_argument(
-            '--no-seysen', '-s', action='store_false', dest='use_seysen',
-            help='If supplied, size-reduction is used. Otherwise, Seysen-reduction is used.')
-
     # Parse the command line arguments
     args = parser.parse_args()
-    print("Use seysen? ", args.use_seysen)
 
     # Perform sanity checks
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'
@@ -110,7 +108,7 @@ def __main__():
     args.cores = max(1, min(args.cores, ceil(n / args.lll_size), cpu_count() // 2))
 
     # Perform Seysen-LLL reduction on basis B
-    U, B_red, tprof = seysen_lll(B, debug=args.profile, **vars(args))
+    U, B_red, tprof = seysen_lll(B, **vars(args))
 
     # Write B_red to the output file
     print_mat = args.output is not None
@@ -126,7 +124,7 @@ def __main__():
         print('\n', str(tprof), sep="", file=stderr)
 
     # Print basis profile
-    if args.profile:
+    if args.debug:
         prof = get_profile(B_red)
         print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
               f'Hermite factor = {rhf(prof):.6f}^n, slope = {slope(prof):.5f}, '
