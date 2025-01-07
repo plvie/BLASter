@@ -66,8 +66,13 @@ def __main__():
             '--bkz-prog', '-P', type=int,
             help='Progressive blocksize increment for BKZ.')
 
+    parser.add_argument(
+            '--no-seysen', '-s', action='store_false', dest='use_seysen',
+            help='If supplied, size-reduction is used. Otherwise, Seysen-reduction is used.')
+
     # Parse the command line arguments
     args = parser.parse_args()
+    print("Use seysen? ", args.use_seysen)
 
     # Perform sanity checks
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'

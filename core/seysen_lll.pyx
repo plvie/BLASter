@@ -11,7 +11,7 @@ from openmp cimport omp_set_num_threads, omp_get_num_threads, omp_get_thread_num
 
 from decl cimport FT, ZZ, \
     lll_reduce, deeplll_reduce, svp_reduce, \
-    eigen_init, eigen_matmul, eigen_right_matmul
+    eigen_init, eigen_matmul, eigen_left_matmul, eigen_right_matmul
 
 
 cnp.import_array()  # http://docs.cython.org/en/latest/src/tutorial/numpy.html#adding-types
@@ -180,6 +180,16 @@ def ZZ_matmul_strided(const ZZ[:, :] A, const ZZ[:, ::1] B) -> cnp.ndarray[ZZ]:
     return np.asarray(C)
 
 
+def ZZ_left_matmul_strided(const ZZ[:, :] A, ZZ[:, :] B) -> None:
+    cdef int n = B.shape[0], m = B.shape[1]
+    cdef int stride_a = A.strides[0] // sizeof(ZZ), stride_b = B.strides[0] // sizeof(ZZ)
+
+    assert A.strides[1] == sizeof(ZZ), "Array A not C-contiguous"
+    assert B.strides[1] == sizeof(ZZ), "Array B not C-contiguous"
+
+    eigen_left_matmul(<const ZZ*>&A[0, 0], <ZZ*>&B[0, 0], n, m, stride_a, stride_b)
+
+
 def ZZ_right_matmul(ZZ[:, ::1] A, const ZZ[:, ::1] B) -> None:
     cdef int n = A.shape[0], m = A.shape[1]
 
@@ -197,7 +207,6 @@ def ZZ_right_matmul_strided(ZZ[:, :] A, const ZZ[:] B) -> None:
     assert A.strides[1] == sizeof(ZZ), "Array A not C-contiguous"
 
     eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0], n, m, stride_a)
-
 
 # FT (floating-point type)
 def FT_matmul(cnp.ndarray[FT, ndim=2] A, cnp.ndarray[FT, ndim=2] B) -> cnp.ndarray[FT]:

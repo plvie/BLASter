@@ -9,9 +9,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import ArtistAnimation, PillowWriter
 
-from seysen_lll import set_debug_flag, set_num_cores, \
-        block_lll, block_deep_lll, block_svp, \
-        ZZ_matmul_strided, ZZ_right_matmul, FT_matmul
+# Local imports
+from seysen_lll import set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_svp, \
+    ZZ_right_matmul
+from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 from stats import get_profile, rhf, slope, potential
 
 
@@ -32,127 +33,12 @@ class TimeProfile:
     def __str__(self):
         return (
             f"Iterations: {self.num_iterations}\n" +
-           "\n".join(f"t_{{{s:11}}}={t/10**9:10.3f}s" for s, t in zip(self._strs, self.times) if t)
-       )
-
-
-def seysen_reduce_iterative(R, U):
-    """
-    Perform Seysen reduction on a matrix R, while keeping track of the transformation matrix U.
-    The matrix R is updated along the way.
-
-    :param R: an upper-triangular matrix that will be modified
-    :param U: an upper-triangular transformation matrix such that diag(U) = (1, 1, ..., 1).
-    :return: Nothing! After termination, R is Seysen reduced.
-    """
-    # Assume diag(U) = (1, 1, ..., 1).
-    n = len(R)
-    for i in range(0, n-1, 2):
-        U[i, i + 1] = -round(R[i, i + 1] / R[i, i])
-        R[i, i + 1] += R[i, i] * U[i, i + 1]
-
-    width, hwidth = 4, 2
-    while hwidth < n:
-        for i in range(0, n - hwidth, width):
-            # Reduce [i + hwidth, i + width) with respect to [i, i + hwidth).
-            #
-            #     [R11 R12]      [U11 U12]              [S11 S12]
-            # R = [ 0  R22], U = [ 0  U22], S = R · U = [ 0  S22]
-            #
-            # The previous iteration has computed U11 and U22, so
-            # Currently, R11 and R22 contain the values of
-            # S11 = R11 · U11 and S22 = R22 · U22 respectively.
-            j, k = i + hwidth, min(n, i + width)
-
-            # S12' = R12 · U22.
-            R[i:j, j:k] = FT_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
-
-            # W = round(S11^{-1} · S12').
-            W = np.rint(FT_matmul(np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
-
-            # U12 = U11 · W
-            U[i:j, j:k] = ZZ_matmul_strided(-U[i:j, i:j], W.astype(np.int64))
-
-            # S12 = S12' - S11 · W.
-            R[i:j, j:k] -= FT_matmul(R[i:j, i:j], W.astype(np.float64))
-
-        width, hwidth = 2 * width, width
-
-
-# def seysen_reduce(R, U):
-#    """
-#    Seysen reduce a matrix R, recursive style, and store the result in U.
-#    See: Algorithm 7 from [KEF21].
-#    [KEF21] P. Kircher, T. Espitau, P.-A. Fouque. Towards faster
-#    polynomial-time lattice reduction.
-#    :param R: an upper-triangular matrix (having row vectors).
-#    :param U: a unimodular transformation U such that RU is Seysen-Reduced.
-#    :return: None! The result is stored in U.
-#    """
-#    n, m = len(R), len(R) // 2
-#    # TODO: Write an iterative version that beats the recursive version.
-#
-#    if n == 1:
-#        # Base case
-#        U[0, 0] = 1
-#    elif n == 2:
-#        # Make sure RU is size-reduced, i.e. |R00*X + R01| <= |R00|/2
-#        U[0, 0] = U[1, 1] = 1
-#        U[0, 1] = -round(R[0, 1] / R[0, 0])
-#    else:
-#        # R11, R12, R22 = R[:m, :m], R[:m, m:], R[m:, m:]
-#        seysen_reduce(R[:m, :m], U[:m, :m])
-#        seysen_reduce(R[m:, m:], U[m:, m:])
-#
-#        S11 = FT_matmul(R[:m, :m], U[:m, :m].astype(np.float64))
-#        S12 = FT_matmul(R[:m, m:], U[m:, m:].astype(np.float64))
-#
-#        # W = round(S11^{-1} S12).
-#        W = np.rint(FT_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
-#        # Now take the fractional part of the entries of W.
-#        U[:m, m:] = ZZ_matmul_strided(-U[:m, :m], W)
-
-
-def is_weakly_lll_reduced(R, delta=.99):
-    """
-    Return whether R is Weakly-LLL-reduced
-    :param R: upper-triangular matrix
-    :param delta: delta-factor used in the Lovasz condition
-    :return: bool
-    """
-    n = len(R)
-    for pos in range(0, n - 1):
-        # vectors are b0 = (u, 0), b1 = (v, w).
-        u = abs(R[pos, pos])
-        v, w = R[pos, pos + 1], R[pos + 1, pos + 1]
-        v_mod = ((v + u/2) % u) - u/2
-
-        if v_mod**2 + w**2 <= delta * u**2:
-            return False  # ||b1||^2 <= delta ||b0||^2
-    return True
-
-
-def is_size_reduced(R):
-    """
-    Return whether R is size-reduced.
-    :param R: upper-triangular matrix
-    :return: bool
-    """
-    return all(max(abs(R[i, i + 1:])) <= abs(R[i, i]) / 2 for i in range(len(R) - 1))
-
-
-def is_lll_reduced(R, delta=.99):
-    """
-    Return whether R is LLL-reduced
-    :param R: upper-triangular matrix
-    :param delta: delta-factor used in the Lovasz condition
-    :return: bool
-    """
-    return is_weakly_lll_reduced(R, delta) and is_size_reduced(R)
+            "\n".join(f"t_{{{s:11}}}={t/10**9:10.3f}s" for s, t in zip(self._strs, self.times) if t)
+        )
 
 
 def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
-               tprof, tracers, debug):
+               tprof, tracers, debug, use_seysen):
     """
     Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
@@ -185,7 +71,10 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 4: Seysen reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
-            seysen_reduce_iterative(R, U_seysen)
+            if use_seysen:
+                seysen_reduce(R, U_seysen)
+            else:
+                size_reduce(R, U_seysen)
 
         # Step 5: Update B and U with transformation from Seysen.
         t5 = perf_counter_ns()
@@ -206,7 +95,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
 
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, tprof, tracers, debug):
+               beta, bkz_tours, tprof, tracers, debug, use_seysen):
     """
     Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
@@ -214,7 +103,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
 
-    lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug)
+    lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
     while tours_done < bkz_tours:
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
@@ -234,7 +123,10 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 4: Seysen reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
-            seysen_reduce_iterative(R, U_seysen)
+            if use_seysen:
+                seysen_reduce(R, U_seysen)
+            else:
+                size_reduce(R, U_seysen)
 
         # Step 5: Update B and U with transformation from Seysen.
         t5 = perf_counter_ns()
@@ -259,13 +151,13 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             tours_done += 1
 
         # Perform a final LLL reduction at the end
-        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, size_reduce)
+        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 
 def seysen_lll(
         B, lll_size: int = 64, delta: float = 0.99, cores: int = 1, debug: bool = False,
         verbose: bool = False, logfile: str = None, anim: str = None, depth: int = 0,
-        size_reduce: bool = False,
+        use_seysen: bool = False,
         **kwds
 ):
     """
@@ -334,7 +226,7 @@ def seysen_lll(
     beta = kwds.get("beta")
     try:
         if not beta:
-            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug)
+            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
         else:
             # Parse BKZ parameters:
             bkz_tours = kwds.get("bkz_tours") or 1
@@ -350,7 +242,7 @@ def seysen_lll(
             # before calling the SVP oracle.
             for beta_ in betas:
                 bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
-                           bkz_tours if beta_ == beta else 1, tprof, tracers, debug)
+                           bkz_tours if beta_ == beta else 1, tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
         pass  # When interrupted, give the partially reduced basis.
 
