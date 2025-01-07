@@ -247,7 +247,7 @@ void svp_reduce(const int N, FT *R, ZZ *U, const FT delta)
 	std::fill_n(U, N * N, ZZ(0));
 
 	// Solve SVP on block [0, N).
-	FT log_volume = 0.0, cur_norm = RSQ(0, 0);
+	FT log_volume = 0.0;
 	for (int j = 0; j < N; j++) {
 		log_volume += log(RSQ(j, j));
 	}

@@ -7,7 +7,6 @@ lattice with quality similar to what LLL achieves.
 import argparse
 from multiprocessing import cpu_count
 from sys import stderr
-from threadpoolctl import threadpool_limits
 from math import log2, ceil
 
 import numpy as np

@@ -24,7 +24,6 @@ class TimeProfile:
         self._strs = ["QR-decomp.", "LLL-red.", "BKZ-red.", "Seysen-red.", "Matrix-mul."]
         self.num_iterations = 0
         self.times = [0] * 5
-        # self.time_bkz = self.time_qr = self.time_lll = self.time_seysen = self.time_matmul = 0
 
     def tick(self, *times):
         self.num_iterations += 1
@@ -249,7 +248,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # After time measurement:
         prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
         note = (f"BKZ-{beta}", (beta, tours_done, bkz_tours, cur_front))
-        for name, tracer in tracers.items():
+        for tracer in tracers.values():
             tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
@@ -260,27 +259,31 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             tours_done += 1
 
         # Perform a final LLL reduction at the end
-        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug)
+        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, size_reduce)
+
 
 def seysen_lll(
         B, lll_size: int = 64, delta: float = 0.99, cores: int = 1, debug: bool = False,
-        verbose: bool = False, logfile: str = None, anim: str = None, depth: int = 0, **kwds
+        verbose: bool = False, logfile: str = None, anim: str = None, depth: int = 0,
+        size_reduce: bool = False,
+        **kwds
 ):
     """
     :param B: a basis, consisting of *column vectors*.
-    :param kwds: arguments containing:
-        - delta: delta factor for Lagrange reduction,
-        - cores: number of cores to use, and
-        - LLL:   the block-size for LLL, and
-        - debug: whether or not to debug and print more output on time consumption.
+    :param delta: delta factor for Lagrange reduction,
+    :param cores: number of cores to use, and
+    :param lll_size: the block-size for LLL, and
+    :param debug: whether or not to debug and print more output on time consumption.
+    :param kwds: additional arguments (for BKZ reduction).
+
     :return: tuple (U, B · U, tprof) where:
         U: the transformation matrix such that B · U is LLL reduced,
         B · U: an LLL-reduced basis,
         tprof: TimeProfile object.
     """
-    n, is_reduced, tprof = B.shape[1], False, TimeProfile()
-
+    n, tprof = B.shape[1], TimeProfile()
     lll_size = min(max(2, lll_size), n)
+
     set_num_cores(cores)
     set_debug_flag(1 if debug else 0)
 
@@ -302,7 +305,7 @@ def seysen_lll(
     has_logfile = logfile is not None
     if has_logfile:
         tstart = perf_counter_ns()
-        logfile = open(logfile, "w")
+        logfile = open(logfile, "w", encoding="utf8")
         print('it,walltime,rhf,slope,potential,note', file=logfile, flush=True)
 
         def trace_logfile(it, prof, note):

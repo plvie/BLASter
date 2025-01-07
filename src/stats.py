@@ -1,16 +1,19 @@
+"""
+Utility functions for computing the basis profile of a given basis, and measuring its quality.
+"""
 from math import exp, gamma, log2, pi
 import numpy as np
 
 
-def get_profile(B, is_upper=False):
+def get_profile(basis, is_upper=False):
     """
     Return the profile of a basis, i.e. log_2 ||b_i*|| for i=1, ..., n.
-    Note: the algorithm is taken base 2, just like https://github.com/keeganryan/flatter.
-    :param B: basis for a lattice
-    :param is_upper: whether B is already an upper triangular matrix or not
+    Note: the logarithm is done base 2, similar to https://github.com/keeganryan/flatter.
+    :param basis: basis for a lattice
+    :param is_upper: whether `basis` is already an upper triangular matrix or not
     """
-    R = B if is_upper else np.linalg.qr(B, mode='r')
-    return [log2(abs(d_i)) for d_i in R.diagonal()]
+    upper = basis if is_upper else np.linalg.qr(basis, mode='r')
+    return [log2(abs(d_i)) for d_i in upper.diagonal()]
 
 
 def gh(dim):
@@ -25,12 +28,12 @@ def gh(dim):
     return float(gamma(1.0 + 0.5 * dim)**(1.0 / dim) / pi**0.5)
 
 
-def gaussian_heuristic(B):
+def gaussian_heuristic(basis):
     """
     Return the Gaussian Heuristic for a particular basis.
     """
-    rank = B.shape[1]
-    return gh(rank) * 2.0**(sum(get_profile(B)) / rank)
+    rank = basis.shape[1]
+    return gh(rank) * 2.0**(sum(get_profile(basis)) / rank)
 
 
 def rhf(profile):
