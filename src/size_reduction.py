@@ -159,14 +159,14 @@ def seysen_reduce(R, U):
             # S12' = R12 · U22.
             R[i:j, j:k] = FT_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
 
-            # W = round(S11^{-1} · S12').
-            W = np.rint(FT_matmul(np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
+            # W = round(-S11^{-1} · S12').
+            W = np.rint(FT_matmul(-np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
 
             # U12 = U11 · W
-            U[i:j, j:k] = ZZ_matmul_strided(-U[i:j, i:j], W.astype(np.int64))
+            U[i:j, j:k] = ZZ_matmul_strided(U[i:j, i:j], W.astype(np.int64))
 
-            # S12 = S12' - S11 · W.
-            R[i:j, j:k] -= FT_matmul(R[i:j, i:j], W.astype(np.float64))
+            # S12 = S12' + S11 · W.
+            R[i:j, j:k] += FT_matmul(R[i:j, i:j], W.astype(np.float64))
 
         width, hwidth = 2 * width, width
 
@@ -273,10 +273,14 @@ def seysen_reduce(R, U):
 #        seysen_reduce(R[:m, :m], U[:m, :m])
 #        seysen_reduce(R[m:, m:], U[m:, m:])
 #
+#        # S11 = R11 · U11
 #        S11 = FT_matmul(R[:m, :m], U[:m, :m].astype(np.float64))
+#
+#        # S12' = R12 · U22
 #        S12 = FT_matmul(R[:m, m:], U[m:, m:].astype(np.float64))
 #
-#        # W = round(S11^{-1} S12).
-#        W = np.rint(FT_matmul(np.linalg.inv(S11), S12)).astype(np.int64)
-#        # Now take the fractional part of the entries of W.
-#        U[:m, m:] = ZZ_matmul_strided(-U[:m, :m], W)
+#        # W = round(-S11^{-1} S12').
+#        W = np.rint(FT_matmul(-np.linalg.inv(S11), S12)).astype(np.int64)
+#
+#        # U12 = U11 · W
+#        U[:m, m:] = ZZ_matmul_strided(U[:m, :m], W)
