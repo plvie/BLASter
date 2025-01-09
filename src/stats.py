@@ -52,12 +52,8 @@ def slope(profile):
     """
     n = len(profile)
     i_mean = (n - 1) * 0.5
-    x_mean = sum(profile)/n
-    v1, v2 = 0.0, 0.0
-
-    for i in range(n):
-        v1 += (i - i_mean) * (profile[i] - x_mean)
-        v2 += (i - i_mean) * (i - i_mean)
+    v1 = sum(profile[i] * (i - i_mean) for i in range(n))
+    v2 = sum((i - i_mean)**2 for i in range(n))
     return v1 / v2
 
 
