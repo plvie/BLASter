@@ -21,8 +21,11 @@ class TimeProfile:
     Object containing time spent on different parts within Seysen-LLL reduction.
     """
 
-    def __init__(self):
-        self._strs = ["QR-decomp.", "LLL-red.", "BKZ-red.", "Seysen-red.", "Matrix-mul."]
+    def __init__(self, use_seysen: bool = False):
+        self._strs = [
+            "QR-decomp.", "LLL-red.", "BKZ-red.",
+            "Seysen-red." if use_seysen else "Size-red.  ", "Matrix-mul."
+        ]
         self.num_iterations = 0
         self.times = [0] * 5
 
@@ -173,7 +176,7 @@ def seysen_lll(
         B · U: an LLL-reduced basis,
         tprof: TimeProfile object.
     """
-    n, tprof = B.shape[1], TimeProfile()
+    n, tprof = B.shape[1], TimeProfile(use_seysen)
     lll_size = min(max(2, lll_size), n)
 
     set_num_cores(cores)
