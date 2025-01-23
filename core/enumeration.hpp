@@ -28,7 +28,6 @@ SOFTWARE.
 #include <cmath>
 #include <cstdint>
 #include <array>
-#include <iostream>
 
 #include "types.hpp"
 
@@ -235,7 +234,6 @@ struct lattice_enum_t
 
 //		std::cout << "[enum]: " << sqrt(_A) << std::endl;
 	}
-
 };
 
 #endif // ENUMLIB_ENUMERATION_HPP

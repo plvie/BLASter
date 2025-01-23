@@ -6,21 +6,22 @@
 
 extern "C" {
 	/*
-	 * Perform LLL reduction on the basis R, and return the transformation matrix U such that
-	 * RU is LLL-reduced.
-	 * @param R upper-triangular matrix representing the R-factor from QR decomposition of the basis.
-	 * @param U transformation matrix that is assumed to be the zero matrix upon calling this function.
+	 * Perform LLL reduction on the basis R, and return the transformation matrix U such that RU is
+	 * LLL-reduced.
+	 *
+	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
+	 * @param U transformation matrix, that was applied to R to LLL-reduce it.
 	 *
 	 * Complexity: poly(N) (for a fixed delta < 1).
 	 */
 	void lll_reduce(const int N, FT *R, ZZ *U, const FT delta);
 
 	/*
-	 * Perform depth-DeepLLL reduction on the basis R, and return the transformation matrix U such that
-	 * RU is depth-DeepLLL-reduced.
+	 * Perform depth-DeepLLL reduction on the basis R, and return the transformation matrix U such
+	 * that RU is depth-DeepLLL-reduced.
 	 *
-	 * @param R upper-triangular matrix representing the R-factor from QR decomposition of the basis.
-	 * @param U transformation matrix that is assumed to be the zero matrix upon calling this function.
+	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
+	 * @param U transformation matrix, that was applied to R to DeepLLL-reduce it.
 	 * @param depth maximum number of positions allowed for 'deep insertions'
 	 *
 	 * Complexity: poly(N) (for a fixed delta < 1 and a fixed depth).
@@ -31,8 +32,8 @@ extern "C" {
 	 * Solve the shortest vector problem (SVP) on the basis R, and return the
 	 * transformation matrix U such that RU has the shortest vector as its first basis vector.
 	 *
-	 * @param R upper-triangular matrix representing the R-factor from QR decomposition of the basis.
-	 * @param U transformation matrix that is assumed to be the zero matrix upon calling this function.
+	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
+	 * @param U transformation matrix, that was applied to R to DeepLLL-reduce it.
 	 *
 	 * Complexity: poly(N) * N^{c_BKZ N} for a fixed delta < 1, where c_BKZ ~ 0.125 in [2].
 	 * [2] https://doi.org/10.1007/978-3-030-56880-1_7
@@ -50,38 +51,25 @@ extern "C" {
 #define UU(row, col) U[(row) * N + (col)]
 
 /*
- * Replace `b_j` by `b_j + number * b_i`, and
- * update R-factor and transformation matrix U accordingly.
- * Assumes i < j.
- *
- * Complexity: O(N)
- */
-inline void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
-{
-	if (number == 0) {
-		return;
-	}
-
-	// R_j += number * R_i.
-	for (int k = 0; k <= i; k++) {
-		RR(k, j) += number * RR(k, i);
-	}
-
-	// U_j += number * U_i.
-	for (int k = 0; k < N; k++) {
-		UU(k, j) += number * UU(k, i);
-	}
-}
-/*
- * Apply size reduction to column j with respect to column i, and
+ * Size reduce column j with respect to column i (i < j), and
  * update the R-factor and transformation matrix U accordingly.
  *
  * Complexity: O(N)
  */
 inline void size_reduce(const int N, FT *R, ZZ *U, int i, int j)
 {
-	ZZ quotient = llround(RR(i, j) / RR(i, i));
-	alter_basis(N, R, U, i, j, -quotient);
+	ZZ quotient = llround(-RR(i, j) / RR(i, i));
+	if (quotient != 0) {
+		// R_j += quotient * R_i.
+		for (int k = 0; k <= i; k++) {
+			RR(k, j) += quotient * RR(k, i);
+		}
+
+		// U_j += quotient * U_i.
+		for (int k = 0; k < N; k++) {
+			UU(k, j) += quotient * UU(k, i);
+		}
+	}
 }
 
 /*
@@ -129,18 +117,19 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 		UU(i, i) = 1;
 	}
 
-	// Loop invariant: [0, k) is LLL-reduced (size-reduced and Lagrange reduced).
+	// Loop invariant: [0, k) is LLL-reduced (size reduced and Lovász' condition holds).
 	for (int k = 1; k < N; ) {
-		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
+		// 1. Size-reduce b_k wrt b_0, ..., b_{k-1}.
 		for (int i = k - 1; i >= 0; --i) {
 			size_reduce(N, R, U, i, k);
 		}
 
-		// 2. Check ||pi(b_k)||^2 > \delta ||pi(b_{k - 1})||^2.
-		if (RSQ(k - 1, k) + RSQ(k, k) > delta * RSQ(k - 1, k - 1)) {
-			// pi(b_{k - 1}), pi(b_k) is already Lagrange reduced, so move on.
+		// 2. Check Lovász’ condition: `\delta ||\pi(b_{k-1})||^2 <= ||\pi(b_k)||^2`.
+		if (delta * RSQ(k - 1, k - 1) <= RSQ(k - 1, k) + RSQ(k, k)) {
+			// Lovász’ condition is satisfied at `k`, so increment `k`.
 			k++;
 		} else {
+			// Lovász’ condition is not satisfied at `k`.
 			// 3. Swap b_{k - 1} and b_k.
 			swap_basis_vectors(N, R, U, k - 1);
 
@@ -148,7 +137,6 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 			if (k > 1) k--;
 		}
 	}
-
 }
 
 /*******************************************************************************
@@ -161,7 +149,7 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
 	// [1] https://doi.org/10.1007/s10623-014-9918-8
 	lll_reduce(N, R, U, delta);
 
-	// Loop invariant: [0, k) is (depth-deep)LLL-reduced (size-reduced and Lagrange reduced).
+	// Loop invariant: [0, k) is depth-deepLLL-reduced.
 	for (int k = 1; k < N; ) {
 		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
 		for (int i = k - 1; i >= 0; i--) {
@@ -195,8 +183,6 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
 
 		if (!swap_performed) k++;
 	}
-
-
 }
 
 /*******************************************************************************
@@ -268,7 +254,9 @@ void svp_reduce(const int N, FT *R, ZZ *U, const FT delta)
 		// No better solution was found, because:
 		// a. pruning caused to miss a shorter vector (prob. ~ 1%), or
 		// b. b_0 is already the shortest vector in the block [0, N).
-		for (int j = 0; j < N; j++) UU(j, j) = 1;
+		for (int j = 0; j < N; j++) {
+			UU(j, j) = 1;
+		}
 		return;
 	}
 
@@ -279,10 +267,15 @@ void svp_reduce(const int N, FT *R, ZZ *U, const FT delta)
 	}
 
 	if (insert_idx >= N) {
-		// This should not happen so regularly!
 		// We should always have gcd(sol) = 1, but there can be no `i` with `sol[i] = +1/-1`!
-		// TODO: report this as an error?!
-		for (int j = 0; j < N; j++) UU(j, j) = 1;
+		// Experimentally, in most of the cases there is such a coefficient equal to +1/-1, making
+		// inserting at the position very easy.
+		// In the rare cases this is not the case, do not insert the shorter basis vector as this
+		// process is more cumbersome.
+		// This should not happen so regularly!
+		for (int j = 0; j < N; j++) {
+			UU(j, j) = 1;
+		}
 		return;
 	}
 
@@ -293,13 +286,18 @@ void svp_reduce(const int N, FT *R, ZZ *U, const FT delta)
 		}
 	}
 
-	// 6. Set `b_0 = sum_j sol[j] b_j`, and
-	// move b_0 ... b_{insert_idx-1} to b_1 ... b_{insert_idx}.
+	// 6. Set `b_0 = sum_j sol[j] b_j`,
 	for (int j = 0; j < N; j++) {
 		UU(j, 0) = sol[j];
 	}
-	for (int j = 0; j < insert_idx; j++)
+
+	// move b_0 ... b_{insert_idx-1} to b_1 ... b_{insert_idx},
+	for (int j = 0; j < insert_idx; j++) {
 		UU(j, j + 1) = 1;
-	for (int j = insert_idx + 1; j < N; j++)
+	}
+
+	// and leave b_{insert_idx + 1, ..., b_{N-1} as is.
+	for (int j = insert_idx + 1; j < N; j++) {
 		UU(j, j) = 1;
+	}
 }

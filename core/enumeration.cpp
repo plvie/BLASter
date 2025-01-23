@@ -1,6 +1,8 @@
 #ifndef ENUMLIB_WRAPPER_ENUMERATION_CPP
 #define ENUMLIB_WRAPPER_ENUMERATION_CPP
 
+#include <iostream>
+
 #include "enumeration.hpp"
 
 /*
