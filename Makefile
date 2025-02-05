@@ -49,7 +49,7 @@ eigen3-clean:
 ### Rules to create a virtual environment with up-to-date numpy and cython
 
 # Default requirements (maybe set a specific version of numpy & cython?)
-PIP_REQUIREMENTS := pip cython cysignals numpy setuptools threadpoolctl matplotlib
+PIP_REQUIREMENTS := pip cython cysignals numpy setuptools matplotlib
 
 venv:
 	@if [ "$(VIRTUAL_ENV)" != "" ]; then echo "Active virtual environment detected. Please run 'deactivate' first!"; false; fi

@@ -5,12 +5,12 @@ SeysenLLL is a proof of concept of an LLL-like lattice reduction algorithm that 
 - parallelization,
 - segmentation,
 - Seysen's reduction instead of size reduction, and
-- linear algebra library.
+- a linear algebra library.
 
 ## Disclaimer
 
-The goal of this software is to showcase possible speed ups in lattice reduction software.
-The software is a proof of concept!
+The goal of this software is to showcase speed ups that are possible in lattice reduction software.
+This software is a *proof of concept*!
 
 In particular, we **do not**:
 
@@ -21,15 +21,15 @@ In particular, we **do not**:
 
 We **do**:
 
-- happily answer any questions to explain design choices phrased as: _"Why is X done in Y way?"_. The answer may, in many cases, simply boil down to "because it is faster in practice".
+- happily answer any questions to explain design choices phrased as: *"Why is X done in Y way?"*. The answer may, in many cases, be: "because it is faster in practice".
 - encourage the cryptographic community to build a new robust lattice reduction library incorporating the ideas in this proof of concept.
 
 ## Requirements
 
 - python3
-- Cython (version 3.0 or later)
-- Other python modules: cysignals numpy setuptools threadpoolctl (installed system-wide or in locally through `make venv`)
-- libeigen3-dev (installed system-wide or locally through `make eigen3`)
+- Cython version 3.0 or later
+- Python modules: `cysignals numpy setuptools` (installed system-wide or in locally through `make venv`)
+- The Eigen library version 3 or later (installed system-wide or locally through `make eigen3`)
 
 Optional:
 
@@ -51,6 +51,8 @@ Optional:
 - If you want to run the program with the `gdb` debugger, read the [Cython documentation](https://cython.readthedocs.io/en/stable/src/userguide/debugging.html#running-the-debugger), for more info.
 
 ## Running
+
+*Note: you first need to build the software, see above.*
 
 Run the command by e.g. typing `./python3 src/app.py -pvi INPUTFILE`.
 Add `-h` for seeing all available command line arguments.
