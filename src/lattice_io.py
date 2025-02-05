@@ -18,15 +18,20 @@ def read_qary_lattice(input_file=None):
     else:
         with open(input_file, 'r', encoding='utf-8') as f:
             data.append(f.readline()[:-1])
-            while data[-1][-2] != ']':
+            while data[-1] != ']' and data[-1][-2] != ']':
                 data.append(f.readline()[:-1])
 
     # Strip away starting '[' and ending ']'
+    assert data[0][0] == '[' and data[-1][-1] == ']'
     data[0] = data[0][1:]
-    data[-1] = data[-1][:-1]
+    if data[-1] == ']':
+        # Flatter and fpLLL output ']' on a separate line instead of '[<data of last row>]]'
+        data.pop()
+    else:
+        data[-1] = data[-1][:-1]
 
     # Convert data to list of integers
-    data = [list(map(int, line[1:-1].split(' '))) for line in data]
+    data = [list(map(int, line[1:-1].strip().split(' '))) for line in data]
 
     if np.count_nonzero(data[-1]) == 1:
         # The q-ary vectors are at the back, so reverse the basis vectors in place.
