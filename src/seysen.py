@@ -116,12 +116,14 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
         offset = (cur_front % beta)
+        # norm_before = abs(R[offset, offset])
         block_svp(beta, R, B, U, delta, offset)
 
         # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
+        # assert abs(R[offset, offset]) <= norm_before
 
         # Step 4: Seysen reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
