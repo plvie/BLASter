@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import ArtistAnimation, PillowWriter
 
 # Local imports
-from seysen_lll import set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_svp, \
+from seysen_lll import set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, \
     ZZ_right_matmul
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 from stats import get_profile, rhf, slope, potential
@@ -98,7 +98,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
 
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, tprof, tracers, debug, use_seysen):
+               beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
     """
     Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
@@ -116,7 +116,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
         # norm_before = abs(R[cur_front, cur_front])
-        block_svp(beta, R, B, U, delta, cur_front % beta)
+        block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size)
 
         # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
@@ -148,11 +148,12 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
-        cur_front += 1
-        if cur_front + 2 >= n:
-            # We are at the end of a tour.
+        if cur_front + beta > n:
+            # HKZ-reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
+        else:
+            cur_front += (bkz_size - beta + 1)
 
         # Perform a final LLL reduction at the end
         lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
@@ -186,15 +187,12 @@ def seysen_lll(
     tracers = {}
     if verbose:
         def trace_print(_, prof, note):
+            log_str = '.'
             if note[0].startswith('BKZ'):
                 beta, tour, ntours, touridx = note[1]
-                if touridx % 10 == 0:
-                    print(f"\nBKZ(β:{beta:3d},t:{tour + 1:2d}/{ntours:2d}, o:{touridx:4d}): "
-                          f"slope={slope(prof):.6f}, rhf={rhf(prof):.6f}",
-                          end="", file=stderr, flush=True)
-            else:
-                print('.', end="", file=stderr, flush=True)
-
+                log_str = (f"\nBKZ(β:{beta:3d},t:{tour + 1:2d}/{ntours:2d}, o:{touridx:4d}): "
+                           f"slope={slope(prof):.6f}, rhf={rhf(prof):.6f}")
+            print(log_str, end="", file=stderr, flush=True)
         tracers['v'] = trace_print
 
     # Set up logfile
@@ -218,7 +216,7 @@ def seysen_lll(
         ax.set(xlim=[0, n])
         artists = []
 
-        def trace_anim(it, prof, _):
+        def trace_anim(_, prof, __):
             artists.append(ax.plot(range(n), prof, color="blue"))
 
         tracers['a'] = trace_anim
@@ -234,6 +232,7 @@ def seysen_lll(
         else:
             # Parse BKZ parameters:
             bkz_tours = kwds.get("bkz_tours") or 1
+            bkz_size = kwds.get("bkz_size") or lll_size
             bkz_prog = kwds.get("bkz_prog") or beta
 
             # Progressive-BKZ: start running BKZ-beta' for some `beta' >= 40`,
@@ -246,7 +245,8 @@ def seysen_lll(
             # before calling the SVP oracle.
             for beta_ in betas:
                 bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
-                           bkz_tours if beta_ == beta else 1, tprof, tracers, debug, use_seysen)
+                           bkz_tours if beta_ == beta else 1, bkz_size,
+                           tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
         pass  # When interrupted, give the partially reduced basis.
 

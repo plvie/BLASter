@@ -26,21 +26,21 @@ extern "C" {
 	 *
 	 * Complexity: poly(N) (for a fixed delta < 1 and a fixed depth).
 	 */
-	void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, int depth);
+	void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth);
 
 	/*
-	 * Solve the shortest vector problem (SVP) on the basis R, and return the
-	 * transformation matrix U such that RU has the shortest vector as its first basis vector.
+	 * Perform BKZ-beta reduction on the basis R, and return the transformation matrix U such that
+	 * RU is BKZ-beta-reduced.
 	 *
 	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
 	 * @param U transformation matrix, that was applied to R to DeepLLL-reduce it.
+	 * @param beta blocksize used for BKZ (dimension of SVP oracle that uses enumeration).
 	 *
-	 * Complexity: poly(N) * N^{c_BKZ N} for a fixed delta < 1, where c_BKZ ~ 0.125 in [2].
+	 * Complexity: poly(N) * beta^{c_BKZ beta} for a fixed delta < 1, where c_BKZ ~ 0.125 in [2].
 	 * [2] https://doi.org/10.1007/978-3-030-56880-1_7
 	 */
-	void svp_reduce(const int N, FT *R, ZZ *U, const FT delta);
+	void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, const int beta);
 }
-
 
 /*******************************************************************************
  * Helper functions to access the matrices R and U at row 'row' and column 'col'
@@ -51,6 +51,30 @@ extern "C" {
 #define UU(row, col) U[(row) * N + (col)]
 
 /*
+ * Replace `b_j` by `b_j + number * b_i`, and
+ * update R-factor and transformation matrix U accordingly.
+ * Assumes i < j.
+ *
+ * Complexity: O(N)
+ */
+inline void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
+{
+	if (number == 0) {
+		return;
+	}
+
+	// R_j += number * R_i.
+	for (int k = 0; k <= i; k++) {
+		RR(k, j) += number * RR(k, i);
+	}
+
+	// U_i += number * U_i.
+	for (int k = 0; k < N; k++) {
+		UU(k, j) += number * UU(k, i);
+	}
+}
+
+/*
  * Size reduce column j with respect to column i (i < j), and
  * update the R-factor and transformation matrix U accordingly.
  *
@@ -58,18 +82,7 @@ extern "C" {
  */
 inline void size_reduce(const int N, FT *R, ZZ *U, int i, int j)
 {
-	ZZ quotient = llround(-RR(i, j) / RR(i, i));
-	if (quotient != 0) {
-		// R_j += quotient * R_i.
-		for (int k = 0; k <= i; k++) {
-			RR(k, j) += quotient * RR(k, i);
-		}
-
-		// U_j += quotient * U_i.
-		for (int k = 0; k < N; k++) {
-			UU(k, j) += quotient * UU(k, i);
-		}
-	}
+	alter_basis(N, R, U, i, j, llround(-RR(i, j) / RR(i, i)));
 }
 
 /*
@@ -106,19 +119,22 @@ void swap_basis_vectors(const int N, FT *R, ZZ *U, const int k)
 	}
 }
 
-/*******************************************************************************
- * LLL reduction
- ******************************************************************************/
-void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
+inline void init_U(const int N, ZZ *U)
 {
 	// Initialize U with the identity matrix
 	std::fill_n(U, N * N, ZZ(0));
 	for (int i = 0; i < N; i++) {
 		UU(i, i) = 1;
 	}
+}
 
+/*******************************************************************************
+ * LLL reduction
+ ******************************************************************************/
+void _lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int limit_k)
+{
 	// Loop invariant: [0, k) is LLL-reduced (size reduced and Lovász' condition holds).
-	for (int k = 1; k < N; ) {
+	for (int k = 1; k < limit_k; ) {
 		// 1. Size-reduce b_k wrt b_0, ..., b_{k-1}.
 		for (int i = k - 1; i >= 0; --i) {
 			size_reduce(N, R, U, i, k);
@@ -139,18 +155,24 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 	}
 }
 
+void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
+{
+	init_U(N, U);
+	_lll_reduce(N, R, U, delta, N);
+}
+
 /*******************************************************************************
  * LLL reduction with deep insertions
  ******************************************************************************/
-void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
+void _deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth, const int limit_k)
 {
 	// If 'depth' is not supplied, set it to N.
 	// Note: first running 'standard' LLL, before performing deepLLL is much faster on average.
 	// [1] https://doi.org/10.1007/s10623-014-9918-8
-	lll_reduce(N, R, U, delta);
+	_lll_reduce(N, R, U, delta, limit_k);
 
 	// Loop invariant: [0, k) is depth-deepLLL-reduced.
-	for (int k = 1; k < N; ) {
+	for (int k = 1; k < limit_k; ) {
 		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
 		for (int i = k - 1; i >= 0; i--) {
 			size_reduce(N, R, U, i, k);
@@ -183,6 +205,12 @@ void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
 
 		if (!swap_performed) k++;
 	}
+}
+
+void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
+{
+	 init_U(N, U);
+	 _deeplll_reduce(N, R, U, delta, depth, N);
 }
 
 /*******************************************************************************
@@ -222,82 +250,85 @@ FT safe_gh_squared(int dim, FT log_volume)
  * Based on Algorithm 1 from [3].
  * [3] https://doi.org/10.1007/978-3-642-25385-0_1
  */
-void svp_reduce(const int N, FT *R, ZZ *U, const FT delta)
+void svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
 {
-	if (N <= 1) {
-		UU(0, 0) = 1;
-		return;
-	}
+	int h = i + w;
+	if (h < N) h++;
 
-	ZZ sol[MAX_ENUM_N]; // coefficients of the enumeration solution for SVP in block of size beta=N.
-	std::fill_n(U, N * N, ZZ(0));
-
-	// Solve SVP on block [0, N).
+	// Solve SVP on block [i, i + w).
 	FT log_volume = 0.0;
-	for (int j = 0; j < N; j++) {
-		log_volume += log(RSQ(j, j));
+	for (int j = 0; j < w; j++) {
+		log_volume += log(RSQ(i + j, i + j));
 	}
 
 	// Find a solution that is shorter than current basis vector and (1 + eps)·GH
-	FT expected_normsq = std::min((1023.0 / 1024) * RSQ(0, 0), safe_gh_squared(N, log_volume));
+	FT expected_normsq = std::min((1023.0 / 1024) * RSQ(i, i), safe_gh_squared(w, log_volume));
 
-	// 1. Pick the pruning parameters for `pr[0 ... N - 1]`.
-	const FT *pr = get_pruning_coefficients(N);
+	// 1. Pick the pruning parameters for `pr[0 ... w - 1]`.
+	const FT *pr = get_pruning_coefficients(w);
 
 	// 2. Enumerate.
 	// [3] Algorithm 1, line 4
-	FT sol_square_norm = enumeration(N, &RR(0, 0), N, pr, expected_normsq, sol);
+	FT sol_square_norm = enumeration(w, &RR(i, i), N, pr, expected_normsq, sol);
 
-	// 3. Check if it returns a shorter & nonzero vector.
+	// 3. Find the last +1/-1 coefficient.
+	int insert_idx = w - 1;
+	while (insert_idx >= 0 && sol[insert_idx] != 1 && sol[insert_idx] != -1) {
+		insert_idx--;
+	}
+
+	// 4. Check if it returns a shorter, nonzero vector & whether there is a +/-1.
 	// [3] Algorithm 1, line 5
-	if (sol_square_norm == 0.0) {
-		// No better solution was found, because:
-		// a. pruning caused to miss a shorter vector (prob. ~ 1%), or
-		// b. b_0 is already the shortest vector in the block [0, N).
-		for (int j = 0; j < N; j++) {
-			UU(j, j) = 1;
+	if (sol_square_norm != 0.0 && insert_idx >= 0) {
+		// 5. Replace the solution by its opposite, if sol[insert_idx] = -1.
+		if (sol[insert_idx] == -1) {
+			for (int j = 0; j <= insert_idx; j++) {
+				sol[j] = -sol[j];
+			}
 		}
-		return;
-	}
 
-	// 4. Find the first +1/-1 coefficient.
-	int insert_idx = 0;
-	while (insert_idx < N && sol[insert_idx] != 1 && sol[insert_idx] != -1) {
-		insert_idx++;
-	}
-
-	if (insert_idx >= N) {
-		// We should always have gcd(sol) = 1, but there can be no `i` with `sol[i] = +1/-1`!
-		// Experimentally, in most of the cases there is such a coefficient equal to +1/-1, making
-		// inserting at the position very easy.
-		// In the rare cases this is not the case, do not insert the shorter basis vector as this
-		// process is more cumbersome.
-		// This should not happen so regularly!
-		for (int j = 0; j < N; j++) {
-			UU(j, j) = 1;
+		// 6. Update for all 0 <= j < insert_idx:
+		for (int j = 0; j < insert_idx; j++) {
+			// b_{i + insert_idx} += sol[j] * b_{i + j}.
+			alter_basis(N, R, U, i + j, i + insert_idx, sol[j]);
 		}
-		return;
-	}
 
-	// 5. Replace the solution by its opposite, if sol[insert_idx] = -1.
-	if (sol[insert_idx] == -1) {
-		for (int j = 0; j < N; j++) {
-			sol[j] = -sol[j];
+		// 7. Move b_{i + insert_idx} to position b_i.
+		while (--insert_idx >= 0) {
+			swap_basis_vectors(N, R, U, i + insert_idx);
 		}
 	}
+	// else: no better solution was found. Three possible reasons:
+	// a. pruning caused to miss a shorter vector (prob. ~ 1%), or
+	// b. b_i is already the shortest vector in the block [i, j), or
+	// c. There is `i` with `sol[i] = +1/-1`. This should not happen reguarly!
+	//    TODO: report error or still input into basis?
 
-	// 6. Set `b_0 = sum_j sol[j] b_j`,
-	for (int j = 0; j < N; j++) {
-		UU(j, 0) = sol[j];
-	}
+	// 8. LLL-reduce [0, h) such that the next enumeration is ran on a LLL-reduced basis.
+	// [3] Algorithm 1, line 6 or 8
+	_deeplll_reduce(N, R, U, delta, 4, h);
+}
 
-	// move b_0 ... b_{insert_idx-1} to b_1 ... b_{insert_idx},
-	for (int j = 0; j < insert_idx; j++) {
-		UU(j, j + 1) = 1;
-	}
+void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta)
+{
+	ZZ sol[MAX_ENUM_N]; // coefficients of the enumeration solution for SVP in block of size beta.
 
-	// and leave b_{insert_idx + 1, ..., b_{N-1} as is.
-	for (int j = insert_idx + 1; j < N; j++) {
-		UU(j, j) = 1;
+	// First init U and run DeepLLL, before performing BKZ.
+	deeplll_reduce(N, R, U, delta, 4);
+
+	if (beta <= 2) return;
+
+	if (beta > N) {
+		// Perform one HKZ-tour. Note: this is only done at the end of the global basis!
+		for (int i = 0; i + 2 <= N; i++) {
+			// Solve SVP on block [i, N).
+			svp(N, R, U, delta, i, N - i, sol);
+		}
+	} else {
+		// Perform one BKZ-tour.
+		for (int i = 0; i + beta <= N; i++) {
+			// Solve SVP on block [i, i + beta).
+			svp(N, R, U, delta, i, beta, sol);
+		}
 	}
 }

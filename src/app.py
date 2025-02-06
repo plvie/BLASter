@@ -48,7 +48,7 @@ def __main__():
             help='delta factor for Lovasz condition')
     parser.add_argument(
             '--lll_size', '-L', type=int, default=64,
-            help='Size of blocks on which to call LLL/DeepLLL/BKZ locally & in parallel')
+            help='Size of blocks on which to call LLL/DeepLLL locally & in parallel')
     parser.add_argument(
             '--no-seysen', '-s', action='store_false', dest='use_seysen',
             help='If supplied, size-reduction is used. Otherwise, Seysen-reduction is used.')
@@ -65,6 +65,9 @@ def __main__():
     parser.add_argument(
             '--bkz-tours', '-t', type=int, default=8,
             help='Number of BKZ-tours to perform.')
+    parser.add_argument(
+            '--bkz-size', '-S', type=int, default=64,
+            help='Size of blocks on which to call BKZ locally & in parallel.')
     parser.add_argument(
             '--bkz-prog', '-P', type=int,
             help='Progressive blocksize increment for BKZ.')
