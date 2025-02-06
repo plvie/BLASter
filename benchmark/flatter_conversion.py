@@ -187,9 +187,11 @@ class ProfileSet:
                 sparse_pairs.append(pairs[i])
 
         with open(fname, "w") as f:
-            print("TT,rhf,slope,potential", file=f)
+            print("it,walltime,rhf,slope,potential", file=f)
+            it = 1
             for tt, _rhf, _slope, _pot in sparse_pairs:
-                print(f"{tt:.6f},{_rhf:.6f},{_slope:.6f},{_pot:.3f}", file=f)
+                print(f"{it:4d},{tt:.6f},{_rhf:.6f},{_slope:.6f},{_pot:.3f}", file=f)
+                it += 1
 
 
 def convert_logfiles(logfile, outfile):
