@@ -122,8 +122,6 @@ def block_deep_lll(int depth,
 def block_svp(int beta,
         cnp.ndarray[FT, ndim=2] R, cnp.ndarray[ZZ, ndim=2] B_red, cnp.ndarray[ZZ, ndim=2] U,
         FT delta, int offset) -> None:
-    global debug_size_reduction
-
     # Variables
     cdef Py_ssize_t n = R.shape[0]
     cdef int i, j, w, num_blocks = int((n - offset + beta - 1) / beta), block_id

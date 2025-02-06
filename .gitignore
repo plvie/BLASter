@@ -23,7 +23,7 @@ __pycache__
 /venv/
 
 # cysignals creates this directory when Ctrl+C'ing during execution
-/cysignals_crash_logs/
+cysignals_crash_logs/
 
 # Benchmarks generate big logs
 /logs/
