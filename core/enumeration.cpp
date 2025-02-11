@@ -6,7 +6,7 @@
 #include "enumeration.hpp"
 
 /*
- * Perform enumeration to solve SVP in dimension N, using the enumlib library by Marc Stevens.
+ * Perform enumeration to solve SVP in dimension N, using the enumlib library by *Anonymous Author*.
  *
  * @param N is dimension
  * @param R: upper-diagonal matrix of dimension N*N. B=Q*R
