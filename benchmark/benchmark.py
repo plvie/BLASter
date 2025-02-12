@@ -4,8 +4,8 @@ import subprocess
 import sys
 
 from flatter_conversion import convert_logfiles
-from lattice_io import read_qary_lattice
-from stats import get_profile, rhf, slope
+from seysenlll.lattice_io import read_qary_lattice
+from seysenlll.stats import get_profile, rhf, slope
 
 
 # Specify which lattices we want to test:
@@ -13,13 +13,20 @@ mqs = [
     (128, 631),  # latticegen q 2 1 10 p
     (256, 829561),  # latticegen q 2 1 20 p
     (512, 968665207),  # latticegen q 2 1 30 p
-    # (1024, 829561),  # latticegen q 2 1 20 p
+    (1024, 968665207),  # latticegen q 2 1 30 p
 ]
 seeds = range(10)
 cmd_seysen = "../python3 ../src/app.py -q"
 temp_lat = "../output/temp.lat"
 other_logs = {m: open(f'./logs_other_{m}.csv', mode='w', encoding='utf8') for (m, q) in mqs}
 
+
+def is_float(x):
+    try:
+        x = float(x)
+    except:
+        return False
+    return True
 
 def parse_time_usage(time_output):
     times = time_output.strip().split(" ")
@@ -66,19 +73,16 @@ def run_seysen_deeplll(m, q, seed, path, depth):
     run_command(f"{cmd_seysen} -i {path} -l {logfile} -d{depth}", logfile)
 
 
-def run_seysen_bkz(m, q, seed, path, beta):
-    logfile = f"../logs/bkz{beta}_{m}_{q}_{seed}.csv"
-    run_command(f"{cmd_seysen} -i {path} -l {logfile} -b{beta} -t1", logfile)
-
-
 def run_seysen_prog_bkz(m, q, seed, path, beta, bkz_prog=2):
     logfile = f"../logs/progbkz{beta}_{m}_{q}_{seed}.csv"
     run_command(f"{cmd_seysen} -i {path} -l {logfile} -b{beta} -P{bkz_prog} -t1", logfile)
 
 
-def run_flatter(m, q, seed, path, num_threads):
+def run_flatter(m, q, seed, path, num_threads, alpha=None):
     flogfile = f"../logs-flatter/{m}_{q}_{seed}.log"
     cmd = f"OMP_NUM_THREADS={num_threads} FLATTER_LOG={flogfile} flatter -q {path}"
+    if alpha:
+        cmd = f"{cmd} -alpha {alpha}"
     run_command(cmd, flogfile, flatter_fail=True)
 
     plogfile = f"../logs/flatter_{m}_{q}_{seed}.csv"
@@ -139,11 +143,6 @@ def __main__():
             depth = int(sys.argv[2 + i])
             for lat in lattices:
                 run_seysen_deeplll(*lat, depth)
-        elif arg == 'bkz':
-            assert 2 + i < len(sys.argv), "beta & bkz-size param expected!"
-            beta = int(sys.argv[2 + i])
-            for lat in lattices:
-                run_seysen_bkz(*lat, beta)
         elif arg == 'pbkz':
             assert 2 + i < len(sys.argv), "beta param expected!"
             beta = int(sys.argv[2 + i])
@@ -152,8 +151,11 @@ def __main__():
         elif arg == 'flatter':
             assert 2 + i < len(sys.argv), "num_threads param expected!"
             num_threads = int(sys.argv[2 + i])
+            alpha = None
+            if 3 + i < len(sys.argv) and is_float(sys.argv[3 + i]):
+                alpha = float(sys.argv[3 + i])
             for lat in lattices:
-                run_flatter(*lat, num_threads)
+                run_flatter(*lat, num_threads, alpha)
         elif arg == 'fplll':
             for lat in lattices:
                 run_fplll(*lat)
@@ -170,7 +172,7 @@ def __main__():
         f.close()
 
     if not has_cmd:
-        print(f"Usage: {sys.argv[0]} [dim d|lattices|lll|deeplll `depth`|bkz `beta` `bkz-size`|"
+        print(f"Usage: {sys.argv[0]} [dim d|lattices|lll|deeplll `depth`|"
               f"pbkz `beta`|flatter `num_threads`]")
 
 if __name__ == "__main__":

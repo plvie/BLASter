@@ -1,11 +1,14 @@
 #!/usr/bin/python3
-import os
+from math import ceil
+from multiprocessing import cpu_count
 import subprocess
 import sys
+from time import time
 
 from flatter_conversion import convert_logfiles
-from lattice_io import read_qary_lattice
-from stats import get_profile, rhf, slope
+from seysenlll.lattice_io import read_qary_lattice
+from seysenlll.stats import get_profile, rhf, slope
+from seysenlll.seysen import seysen_lll
 
 
 def is_prime(x):
@@ -30,7 +33,6 @@ def next_prime(x):
 mqs = [(m, next_prime(2**(m//8))) for m in range(48, 256, 16)]
 seeds = range(10)
 lattice_output = "../output/temp.lat"
-cmd_seysen = f"../python3 ../src/app.py -qo {lattice_output}"
 output_file = None
 
 
@@ -62,17 +64,34 @@ def run_command(cmd, instance, env=None):
     output_data(data | parse_time_usage(result.stderr))
 
 
+def run_seysenlll(inputfile, depth, instance):
+    T0 = time()
+
+    # Read lattice
+    B = read_qary_lattice(inputfile)
+
+    # Based on src/app.py:
+    cores = max(1, min(ceil(B.shape[1] / 64), cpu_count() // 2))
+
+    # Run lattice reduction
+    U, B_red, tprof = seysen_lll(B, depth=depth)
+
+    T1 = time()
+    prof = get_profile(B_red)
+    data = instance | {'slope': f"{slope(prof):.6f}", 'rhf': f"{rhf(prof):.5f}"}
+    output_data(data | {'real': (T1 - T0), 'user': '0', 'sys': 0})
+
 def gen_lattice(m, q, seed, path):
     n = m//2
     run_command(f"latticegen -randseed {seed} q {m} {n} {q} q > {path}")
 
 
 def run_seysen_lll(m, q, seed, path):
-    run_command(f"{cmd_seysen} -i {path}", {'m': m, 'q': q, 'seed': seed, 'type': 'LLL'})
+    run_seysenlll(path, 0, {'m': m, 'q': q, 'seed': seed, 'type': 'LLL'})
 
 
 def run_seysen_deeplll(m, q, seed, path, depth):
-    run_command(f"{cmd_seysen} -i {path} -d{depth}", {'m': m, 'q': q, 'seed': seed, 'type': f'DeepLLL{depth}'})
+    run_seysenlll(path, depth, {'m': m, 'q': q, 'seed': seed, 'type': f'DeepLLL{depth}'})
 
 
 def run_flatter(m, q, seed, path, num_threads):

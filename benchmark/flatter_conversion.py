@@ -1,6 +1,6 @@
 import numpy as np
 import argparse
-from stats import rhf, slope, potential
+from seysenlll.stats import rhf, slope, potential
 
 # Adaption of:
 # https://github.com/keeganryan/flatter/blob/main/scripts/visualize_profile.py
