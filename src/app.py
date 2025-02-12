@@ -11,6 +11,7 @@ from math import log2, ceil
 
 import numpy as np
 
+# Local imports
 from lattice_io import read_qary_lattice, write_lattice
 from seysen import seysen_lll
 from stats import gaussian_heuristic, rhf, slope, get_profile
@@ -130,7 +131,7 @@ def __main__():
     if args.debug:
         prof = get_profile(B_red)
         print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-              f'Hermite factor = {rhf(prof):.6f}^n, slope = {slope(prof):.5f}, '
+              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
               f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
 
     # Assert that applying U on the basis B indeed gives the reduced basis B_red.
