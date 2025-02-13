@@ -161,6 +161,7 @@ def nearest_plane(R, T, U):
     # Reduce 0th coordinate of T wrt b_0 but only in the 0th coefficient!
     T[0, :] += R[0, 0] * U[0, :]
 
+
 def size_reduce(R, U):
     """
     Perform size reduction on R *inplace*, and write the transformation done to R in U, such that
