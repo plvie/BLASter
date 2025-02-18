@@ -1,6 +1,6 @@
-# SeysenLLL
+# BLASter
 
-SeysenLLL is a proof of concept of an LLL-like lattice reduction algorithm that uses:
+BLASter is a proof of concept of an LLL-like lattice reduction algorithm that uses:
 
 - parallelization,
 - segmentation,
@@ -71,6 +71,6 @@ user	0m2,271s
 sys	0m0,105s
 ```
 
-To run DeepLLL with depth `4`, run `src/app.py -pq -i {lattice} -d4`.
+To run deep-LLL with depth `4`, run `src/app.py -pq -i {lattice} -d4`.
 
-To run progressive BKZ-60 (with 4-deepLLL) with `1` tours and block size increments of `2`, run `src/app.py -pq -i {lattice} -b60 -t1 -P2`.
+To run progressive BKZ-60 (with 4-deep-LLL) with `1` tours and block size increments of `2`, run `src/app.py -pq -i {lattice} -b60 -t1 -P2`.

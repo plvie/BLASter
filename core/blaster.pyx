@@ -99,7 +99,7 @@ def block_deep_lll(int depth,
         for j in range(w):
             memcpy(&R_sub[block_id, j * w], &R[i + j, i], w * sizeof(FT));
 
-        # Step 1: run DeepLLL on block [i, i + w).
+        # Step 1: run deep-LLL on block [i, i + w).
         deeplll_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, depth)
 
         if debug_size_reduction != 0:

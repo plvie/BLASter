@@ -49,8 +49,8 @@ else:
     ]
 
 extensions = [Extension(
-    name="seysen_lll",
-    sources=["core/seysen_lll.pyx"],
+    name="blaster_core",
+    sources=["core/blaster.pyx"],
     include_dirs=include_dirs,
     extra_compile_args=compile_args,
     extra_link_args=link_args

@@ -17,11 +17,11 @@ extern "C" {
 	void lll_reduce(const int N, FT *R, ZZ *U, const FT delta);
 
 	/*
-	 * Perform depth-DeepLLL reduction on the basis R, and return the transformation matrix U such
-	 * that RU is depth-DeepLLL-reduced.
+	 * Perform depth-deep-LLL reduction on the basis R, and return the transformation matrix U such
+	 * that RU is depth-deep-LLL-reduced.
 	 *
 	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
-	 * @param U transformation matrix, that was applied to R to DeepLLL-reduce it.
+	 * @param U transformation matrix, that was applied to R to deep-LLL-reduce it.
 	 * @param depth maximum number of positions allowed for 'deep insertions'
 	 *
 	 * Complexity: poly(N) (for a fixed delta < 1 and a fixed depth).
@@ -33,7 +33,7 @@ extern "C" {
 	 * RU is BKZ-beta-reduced.
 	 *
 	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
-	 * @param U transformation matrix, that was applied to R to DeepLLL-reduce it.
+	 * @param U transformation matrix, that was applied to R to deep-LLL-reduce it.
 	 * @param beta blocksize used for BKZ (dimension of SVP oracle that uses enumeration).
 	 *
 	 * Complexity: poly(N) * beta^{c_BKZ beta} for a fixed delta < 1, where c_BKZ ~ 0.125 in [1].
@@ -166,11 +166,11 @@ void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
  ******************************************************************************/
 void _deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth, const int limit_k)
 {
-	// First run LLL, because this makes DeepLLL faster, see [2].
+	// First run LLL, because this makes deep-LLL faster, see [2].
 	// [2] https://doi.org/10.1007/s10623-014-9918-8
 	_lll_reduce(N, R, U, delta, limit_k);
 
-	// Loop invariant: [0, k) is depth-deepLLL-reduced.
+	// Loop invariant: [0, k) is depth-deep-LLL-reduced.
 	for (int k = 1; k < limit_k; ) {
 		// 1. Size-reduce R_k wrt R_0, ..., R_{k - 1}.
 		for (int i = k - 1; i >= 0; i--) {
@@ -315,7 +315,7 @@ void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta)
 {
 	ZZ sol[MAX_ENUM_N]; // coefficients of the enumeration solution for SVP in block of size beta.
 
-	// First init U and run DeepLLL, before performing BKZ.
+	// First init U and run deep-LLL, before performing BKZ.
 	deeplll_reduce(N, R, U, delta, 4);
 
 	if (beta <= 2) return;

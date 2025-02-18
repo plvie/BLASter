@@ -1,5 +1,6 @@
 """
-LLL reduction with Seysen instead of size reduction.
+BLASter lattice reduction: LLL with QR decomposition, Seysen's reduction, and
+segments, in which lattice reduction is done in parallel.
 """
 from functools import partial
 from sys import stderr
@@ -10,15 +11,15 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import ArtistAnimation, PillowWriter
 
 # Local imports
-from seysen_lll import set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, \
-    ZZ_right_matmul
+from blaster_core import \
+    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 from stats import get_profile, rhf, slope, potential
 
 
 class TimeProfile:
     """
-    Object containing time spent on different parts within Seysen-LLL reduction.
+    Object containing time spent on different parts when running BLASter.
     """
 
     def __init__(self, use_seysen: bool = False):
@@ -43,7 +44,7 @@ class TimeProfile:
 def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
                tprof, tracers, debug, use_seysen):
     """
-    Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
+    Perform BLASter's lattice reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
     """
     n, is_reduced, offset = B.shape[1], False, 0
@@ -58,7 +59,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 2: Call LLL concurrently on small blocks.
         t2 = perf_counter_ns()
         offset = lll_size // 2 if offset == 0 else 0
-        red_fn(R, B, U, delta, offset, lll_size)  # LLL or Deep-LLL
+        red_fn(R, B, U, delta, offset, lll_size)  # LLL or deep-LLL
 
         if debug:
             for i in range(offset, n, lll_size):
@@ -71,7 +72,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
 
-        # Step 4: Seysen reduce the upper-triangular matrix R.
+        # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
             if use_seysen:
@@ -79,7 +80,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
             else:
                 size_reduce(R, U_seysen)
 
-        # Step 5: Update B and U with transformation from Seysen.
+        # Step 5: Update B and U with transformation from Seysen's reduction.
         t5 = perf_counter_ns()
         ZZ_right_matmul(U, U_seysen)
         ZZ_right_matmul(B, U_seysen)
@@ -100,8 +101,9 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
     """
-    Perform Seysen + LLL-reduction on basis B, and keep track of the transformation in U.
-    If `depth` is supplied, use deep insertions up to depth `depth`.
+    Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
+    If `depth` is supplied, BLASter's deep-LLL is called in between calls of the SVP oracle.
+    Otherwise BLASter's LLL is run.
     """
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
@@ -124,7 +126,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         R = np.linalg.qr(B, mode='r')
         # assert abs(R[cur_front, cur_front]) <= norm_before
 
-        # Step 4: Seysen reduce the upper-triangular matrix R.
+        # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
             if use_seysen:
@@ -132,7 +134,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             else:
                 size_reduce(R, U_seysen)
 
-        # Step 5: Update B and U with transformation from Seysen.
+        # Step 5: Update B and U with transformation from Seysen's reduction.
         t5 = perf_counter_ns()
         ZZ_right_matmul(U, U_seysen)
         ZZ_right_matmul(B, U_seysen)
@@ -159,7 +161,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 
-def seysen_lll(
+def reduce(
         B, lll_size: int = 64, delta: float = 0.99, cores: int = 1, debug: bool = False,
         verbose: bool = False, logfile: str = None, anim: str = None, depth: int = 0,
         use_seysen: bool = False,
@@ -241,7 +243,7 @@ def seysen_lll(
             betas = range(40 + ((beta - 40) % bkz_prog), beta + 1, bkz_prog)
 
             # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
-            # However, it is actually better to preprocess the basis with DeepLLL-4 instead of LLL,
+            # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
             # before calling the SVP oracle.
             for beta_ in betas:
                 bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,

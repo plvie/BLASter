@@ -4,8 +4,8 @@ import subprocess
 import sys
 
 from flatter_conversion import convert_logfiles
-from seysenlll.lattice_io import read_qary_lattice
-from seysenlll.stats import get_profile, rhf, slope
+from blaster.lattice_io import read_qary_lattice
+from blaster.stats import get_profile, rhf, slope
 
 
 # Specify which lattices we want to test:
@@ -16,7 +16,7 @@ mqs = [
     (1024, 968665207),  # latticegen q 2 1 30 p
 ]
 seeds = range(10)
-cmd_seysen = "../python3 ../src/app.py -q"
+cmd_blaster = "../python3 ../src/app.py -q"
 temp_lat = "../output/temp.lat"
 other_logs = {m: open(f'./logs_other_{m}.csv', mode='w', encoding='utf8') for (m, q) in mqs}
 
@@ -61,21 +61,21 @@ def gen_lattice(m, q, seed, path):
     run_command(f"latticegen -randseed {seed} q {m} {n} {q} q > {path}")
 
 
-def run_seysen_lll(m, q, seed, path):
+def run_blaster(m, q, seed, path):
     logfile = f"../logs/lll_{m}_{q}_{seed}.csv"
-    run_command(f"{cmd_seysen} -i {path} -l {logfile}", logfile)
+    run_command(f"{cmd_blaster} -i {path} -l {logfile}", logfile)
 
 
-def run_seysen_deeplll(m, q, seed, path, depth):
+def run_blaster_deeplll(m, q, seed, path, depth):
     logfile = f"../logs/deeplll{depth}_{m}_{q}_{seed}.csv"
     # outfile = path.replace('input/', f'output/d{depth}_')
-    # result = run_command(f"{cmd_seysen} -i {path} -o {outfile} -l {logfile} -d{depth}")
-    run_command(f"{cmd_seysen} -i {path} -l {logfile} -d{depth}", logfile)
+    # result = run_command(f"{cmd_blaster} -i {path} -o {outfile} -l {logfile} -d{depth}")
+    run_command(f"{cmd_blaster} -i {path} -l {logfile} -d{depth}", logfile)
 
 
-def run_seysen_prog_bkz(m, q, seed, path, beta, bkz_prog=2):
+def run_blaster_bkz(m, q, seed, path, beta, bkz_prog=2):
     logfile = f"../logs/progbkz{beta}_{m}_{q}_{seed}.csv"
-    run_command(f"{cmd_seysen} -i {path} -l {logfile} -b{beta} -P{bkz_prog} -t1", logfile)
+    run_command(f"{cmd_blaster} -i {path} -l {logfile} -b{beta} -P{bkz_prog} -t1", logfile)
 
 
 def run_flatter(m, q, seed, path, num_threads, alpha=None):
@@ -137,17 +137,17 @@ def __main__():
                 gen_lattice(*lat)
         elif arg == 'lll':
             for lat in lattices:
-                run_seysen_lll(*lat)
+                run_blaster(*lat)
         elif arg == 'deeplll':
             assert 2 + i < len(sys.argv), "depth param expected!"
             depth = int(sys.argv[2 + i])
             for lat in lattices:
-                run_seysen_deeplll(*lat, depth)
+                run_blaster_deeplll(*lat, depth)
         elif arg == 'pbkz':
             assert 2 + i < len(sys.argv), "beta param expected!"
             beta = int(sys.argv[2 + i])
             for lat in lattices:
-                run_seysen_prog_bkz(*lat, beta)
+                run_blaster_bkz(*lat, beta)
         elif arg == 'flatter':
             assert 2 + i < len(sys.argv), "num_threads param expected!"
             num_threads = int(sys.argv[2 + i])

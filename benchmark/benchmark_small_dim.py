@@ -6,9 +6,9 @@ import sys
 from time import time
 
 from flatter_conversion import convert_logfiles
-from seysenlll.lattice_io import read_qary_lattice
-from seysenlll.stats import get_profile, rhf, slope
-from seysenlll.seysen import seysen_lll
+from blaster.lattice_io import read_qary_lattice
+from blaster.stats import get_profile, rhf, slope
+from blaster.blaster import reduce
 
 
 def is_prime(x):
@@ -64,7 +64,7 @@ def run_command(cmd, instance, env=None):
     output_data(data | parse_time_usage(result.stderr))
 
 
-def run_seysenlll(inputfile, depth, instance):
+def exec_blaster(inputfile, depth, instance):
     T0 = time()
 
     # Read lattice
@@ -74,7 +74,7 @@ def run_seysenlll(inputfile, depth, instance):
     cores = max(1, min(ceil(B.shape[1] / 64), cpu_count() // 2))
 
     # Run lattice reduction
-    U, B_red, tprof = seysen_lll(B, depth=depth)
+    U, B_red, tprof = reduce(B, depth=depth)
 
     T1 = time()
     prof = get_profile(B_red)
@@ -86,12 +86,12 @@ def gen_lattice(m, q, seed, path):
     run_command(f"latticegen -randseed {seed} q {m} {n} {q} q > {path}")
 
 
-def run_seysen_lll(m, q, seed, path):
-    run_seysenlll(path, 0, {'m': m, 'q': q, 'seed': seed, 'type': 'LLL'})
+def run_blaster(m, q, seed, path):
+    exec_blaster(path, 0, {'m': m, 'q': q, 'seed': seed, 'type': 'LLL'})
 
 
-def run_seysen_deeplll(m, q, seed, path, depth):
-    run_seysenlll(path, depth, {'m': m, 'q': q, 'seed': seed, 'type': f'DeepLLL{depth}'})
+def run_blaster_deeplll(m, q, seed, path, depth):
+    exec_blaster(path, depth, {'m': m, 'q': q, 'seed': seed, 'type': f'DeepLLL{depth}'})
 
 
 def run_flatter(m, q, seed, path, num_threads):
@@ -125,12 +125,12 @@ def __main__():
                 gen_lattice(*lat)
         elif arg == 'lll':
             for lat in lattices:
-                run_seysen_lll(*lat)
+                run_blaster(*lat)
         elif arg == 'deeplll':
             assert 2 + i < len(sys.argv), "depth param expected!"
             depth = int(sys.argv[2 + i])
             for lat in lattices:
-                run_seysen_deeplll(*lat, depth)
+                run_blaster_deeplll(*lat, depth)
         elif arg == 'flatter':
             assert 2 + i < len(sys.argv), "num_threads param expected!"
             num_threads = int(sys.argv[2 + i])
@@ -150,8 +150,8 @@ def __main__():
             num_threads = int(sys.argv[3 + i])
 
             for lat in lattices:
-                run_seysen_lll(*lat)
-                run_seysen_deeplll(*lat, depth)
+                run_blaster(*lat)
+                run_blaster_deeplll(*lat, depth)
                 run_flatter(*lat, num_threads)
                 run_fplll(*lat)
                 run_KEF21(*lat, num_threads)

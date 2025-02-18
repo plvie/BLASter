@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Script to perform lattice reduction, using Seysen Size-Reduction, but with the aim of outputting a
-lattice with quality similar to what LLL achieves.
+Script for running BLASter lattice reduction from the command line
 """
 
 import argparse
@@ -13,14 +12,14 @@ import numpy as np
 
 # Local imports
 from lattice_io import read_qary_lattice, write_lattice
-from seysen import seysen_lll
+from blaster import reduce
 from stats import gaussian_heuristic, rhf, slope, get_profile
 
 
 def __main__():
     parser = argparse.ArgumentParser(
-            prog='SeysenLLL',
-            description='LLL-reduce a lattice using seysen reduction',
+            prog='BLASter',
+            description='LLL-reduce a lattice using a fast, modern implementation',
             epilog='Input/output is formatted as is done in fpLLL')
 
     # Global settings
@@ -49,15 +48,15 @@ def __main__():
             help='delta factor for Lovasz condition')
     parser.add_argument(
             '--lll_size', '-L', type=int, default=64,
-            help='Size of blocks on which to call LLL/DeepLLL locally & in parallel')
+            help='Size of blocks on which to call LLL/deep-LLL locally & in parallel')
     parser.add_argument(
             '--no-seysen', '-s', action='store_false', dest='use_seysen',
-            help='If supplied, size-reduction is used. Otherwise, Seysen-reduction is used.')
+            help='Use size reduction if argument is given. Otherwise use Seysen\'s reduction.')
 
-    # Parameters specific to DeepLLL:
+    # Parameters specific to deep-LLL:
     parser.add_argument(
             '--depth', '-d', type=int, default=0,
-            help='Maximum allowed depth for "deep insertions" in deepLLL. 0 if not desired.')
+            help='Maximum allowed depth for "deep insertions" in deep-LLL. 0 if not desired.')
 
     # Parameters specific to BKZ:
     parser.add_argument(
@@ -79,7 +78,7 @@ def __main__():
     # Perform sanity checks
     assert 0.25 < args.delta and args.delta < 1.0, 'Invalid value for delta!'
     assert args.lll_size >= 2, 'LLL block size must be at least 2!'
-    assert not args.depth or not args.beta, 'Cannot run combination of DeepLLL and BKZ!'
+    assert not args.depth or not args.beta, 'Cannot run combination of deep-LLL and BKZ!'
 
     # Read the basis from input (file)
     B = read_qary_lattice(args.input)
@@ -88,7 +87,7 @@ def __main__():
     if args.verbose:
         # Experimentally, LLL gives a RHF of 1.02190
         # See: https://github.com/malb/lattice-estimator/blob/main/estimator/reduction.py
-        # TODO: adjust slope to the prediction for DeepLLL and BKZ.
+        # TODO: adjust slope to the prediction for deep-LLL and BKZ.
         log_slope = log2(1.02190)  # Slope of graph of basis profile, log2(||b_i*||^2).
         log_det = sum(get_profile(B))
         norm_b1 = 2.0**(log_slope * (n-1) + log_det / n)
@@ -102,17 +101,17 @@ def __main__():
               f'(GH: λ₁ ~ {gaussian_heuristic(B):.2f})',
               file=stderr)
 
-    # Multithreading is used to speed up SeysenLLL in two places:
+    # Multithreading is used in two places:
     # 1) Matrix multiplication (controlled by Eigen)
-    # 2) Lattice reduction (done using Cython's `prange`, which uses OPENMP)
+    # 2) Lattice reduction in `core/blaster.pyx` (done using Cython's `prange`, which uses OPENMP)
     # Notes: using more cores creates more overhead, so use cores wisely!
     # Re 1): Starting around dimension >500, there is a performance gain using multiple threads
     # Re 2): The program cannot use more cores in lattice reduction
     # than the number of blocks, so do not spawn more than this number.
     args.cores = max(1, min(args.cores, ceil(n / args.lll_size), cpu_count() // 2))
 
-    # Perform Seysen-LLL reduction on basis B
-    U, B_red, tprof = seysen_lll(B, **vars(args))
+    # Run BLASter lattice reduction on basis B
+    U, B_red, tprof = reduce(B, **vars(args))
 
     # Write B_red to the output file
     print_mat = args.output is not None

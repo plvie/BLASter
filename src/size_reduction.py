@@ -8,7 +8,7 @@ from functools import cache
 import numpy as np
 
 # Local imports
-from seysen_lll import ZZ_matmul_strided, ZZ_left_matmul_strided, FT_matmul
+from blaster_core import ZZ_matmul_strided, ZZ_left_matmul_strided, FT_matmul
 
 
 # Reduction properties:
@@ -204,7 +204,7 @@ def size_reduce(R, U):
 
 def seysen_reduce(R, U):
     """
-    Perform Seysen reduction on a matrix R, while keeping track of the transformation matrix U.
+    Perform Seysen's reduction on a matrix R, while keeping track of the transformation matrix U.
     The matrix R is updated along the way.
 
     :param R: an upper-triangular matrix that will be modified
