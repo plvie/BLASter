@@ -298,16 +298,18 @@ void svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
 		}
 	}
 
-	// There are three possible reasons why no update was performed.
-	// 1. A shorter vector is not found because of pruning (prob. ~ 1%)
-	// 2. `b_i` is already the shortest vector in the block [i, i + w)
-	// 3. The solution coefficients do not allow an easy insertion.
-	// Note: reason 3. appears to seldomly happen in practice, when calling
-	// progressive BKZ. The algorithm could be modified to handle such
-	// difficult insertions.
+	/* There are three possible reasons why no update was performed:
+	 * 1. A shorter vector is not found because of pruning
+	 * 2. `b_i` is already the shortest vector in the block [i, i + w)
+	 * 3. The solution coefficients do not allow an easy insertion.
+	 *
+	 * Note 1: See pruning_params.cpp for the success probability.
+	 * Note 2: In practice, reason 3 seldomly happens, when calling progressive BKZ. The algorithm
+	 *         could be modified to handle such difficult insertions.
+	 */
 
-	// LLL-reduce [0, h) such that the next enumeration is ran on a LLL-reduced basis.
 	// [3] Algorithm 1, line 6 or 8
+	// LLL-reduce [i, i + w) such that the next enumeration is ran on an LLL-reduced basis.
 	_deeplll_reduce(N, R, U, delta, 4, std::min(i + w, N));
 }
 

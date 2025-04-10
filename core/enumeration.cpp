@@ -15,7 +15,7 @@
  * @param enumeration_radius: expected norm squared of the shortest nonzero vector in this lattice
  * @param sol: return param: integer vector solution with respect to current basis, or the 0 vector otherwise
  *
- * Complexity: exponential in N.
+ * Complexity: super-exponential in N.
  */
 FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningvector, FT enumeration_radius, ZZ* sol)
 {
