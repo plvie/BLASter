@@ -232,14 +232,16 @@ def seysen_reduce(R, U):
         # S12' = R12 · U22.
         R[i:j, j:k] = FT_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
 
-        # W = round(-S11^{-1} · S12').
-        W = np.rint(FT_matmul(-np.linalg.inv(R[i:j, i:j]), R[i:j, j:k]))
+        # U12' = round(-S11^{-1} · S12').
+        U[i:j, j:k] = np.rint(
+            FT_matmul(-np.linalg.inv(R[i:j, i:j]), R[i:j, j:k])
+        ).astype(np.int64)
 
-        # U12 = U11 · W
-        U[i:j, j:k] = ZZ_matmul_strided(U[i:j, i:j], W.astype(np.int64))
+        # S12 = S12' + S11 · U12'.
+        R[i:j, j:k] += FT_matmul(R[i:j, i:j], U[i:j, j:k].astype(np.float64))
 
-        # S12 = S12' + S11 · W.
-        R[i:j, j:k] += FT_matmul(R[i:j, i:j], W.astype(np.float64))
+        # U12 = U11 · U12'
+        ZZ_left_matmul_strided(U[i:j, i:j], U[i:j, j:k])
 
 
 # For didactical reasons, here are the recursive versions of:
