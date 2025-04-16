@@ -9,8 +9,7 @@ from cython.parallel cimport prange
 from libc.string cimport memcpy
 from openmp cimport omp_set_num_threads, omp_get_num_threads, omp_get_thread_num
 
-from decl cimport FT, ZZ, \
-    lll_reduce, deeplll_reduce, bkz_reduce, \
+from decl cimport FT, ZZ, lll_reduce, deeplll_reduce, bkz_reduce, \
     eigen_init, eigen_matmul, eigen_left_matmul, eigen_right_matmul
 
 
@@ -32,7 +31,9 @@ def set_num_cores(int num_cores):
     eigen_init(num_cores)
 
 
+#
 # Lattice reduction
+#
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def block_lll(
@@ -162,9 +163,14 @@ def block_bkz(int beta,
         ZZ_right_matmul_strided(B_red[:, i:i+w], U_sub[block_id, 0:w*w])
 
 
-# Matrix Multiplication
-# ZZ (integer type)
+#
+# Integer (int64) Matrix Multiplication using Eigen, which internally uses OpenMP.
+#
 def ZZ_matmul(const ZZ[:, ::1] A, const ZZ[:, ::1] B) -> cnp.ndarray[ZZ]:
+    """
+    Return A * B.
+    A and B should be C-contiguous.
+    """
     cdef:
         int n = A.shape[0], m = A.shape[1], k = B.shape[1]
         ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=NP_ZZ)
@@ -174,19 +180,11 @@ def ZZ_matmul(const ZZ[:, ::1] A, const ZZ[:, ::1] B) -> cnp.ndarray[ZZ]:
     return np.asarray(C)
 
 
-# Variant with row stride for A:
-def ZZ_matmul_strided(const ZZ[:, :] A, const ZZ[:, ::1] B) -> cnp.ndarray[ZZ]:
-    cdef:
-        int n = A.shape[0], m = A.shape[1], k = B.shape[1], stride_a = A.strides[0] // sizeof(ZZ)
-        ZZ[:, ::1] C = np.empty(shape=(n, k), dtype=NP_ZZ)
-
-    assert B.shape[0] == m, "Dimension mismatch"
-    assert A.strides[1] == sizeof(FT), "Array A is not C-contiguous"
-    eigen_matmul(<const ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], &C[0, 0], n, m, k, stride_a)
-    return np.asarray(C)
-
-
 def ZZ_left_matmul_strided(const ZZ[:, :] A, ZZ[:, :] B) -> None:
+    """
+    Compute B <- A * B.
+    A and B may have a row-stride.
+    """
     cdef:
         int n = B.shape[0], m = B.shape[1]
         int stride_a = A.strides[0] // sizeof(ZZ), stride_b = B.strides[0] // sizeof(ZZ)
@@ -197,6 +195,10 @@ def ZZ_left_matmul_strided(const ZZ[:, :] A, ZZ[:, :] B) -> None:
 
 
 def ZZ_right_matmul(ZZ[:, ::1] A, const ZZ[:, ::1] B) -> None:
+    """
+    Compute A <- A * B.
+    A and B should be C-contiguous.
+    """
     cdef:
         int n = A.shape[0], m = A.shape[1]
 
@@ -204,9 +206,12 @@ def ZZ_right_matmul(ZZ[:, ::1] A, const ZZ[:, ::1] B) -> None:
     eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0, 0], n, m)
 
 
-# Variant with row stride for A:
-# Note: B is a 1D-array of length m^2. This is used in lattice_reduction.pyx
 def ZZ_right_matmul_strided(ZZ[:, :] A, const ZZ[:] B) -> None:
+    """
+    Compute A <- A * B.
+    A may have a row-stride. B should be a 1-dimensionala array of length m^2,
+    where m is the number of columns of A.
+    """
     cdef:
         int n = A.shape[0], m = A.shape[1], stride_a = A.strides[0] // sizeof(ZZ)
 
@@ -214,7 +219,12 @@ def ZZ_right_matmul_strided(ZZ[:, :] A, const ZZ[:] B) -> None:
     eigen_right_matmul(<ZZ*>&A[0, 0], <const ZZ*>&B[0], n, m, stride_a)
 
 
-# FT (floating-point type)
+#
+# Floating-point (double) Matrix Multiplication using NumPy, which internally uses BLAS.
+#
 def FT_matmul(cnp.ndarray[FT, ndim=2] A, cnp.ndarray[FT, ndim=2] B) -> cnp.ndarray[FT]:
-    # Note: NumPy uses BLAS to multiply floating-point matrices, but Eigen uses OpenMP
+    """
+    Return A * B.
+    """
     return A @ B
+

@@ -15,7 +15,6 @@ cdef extern from "eigen_matmul.cpp" nogil:
 
 	# c = a * b
     void eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k)
-    void eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k, int stride_a)
 
 	# b = a * b
     void eigen_left_matmul(const ZZ *a, ZZ *b, int n, int m, int stride_a, int stride_b)

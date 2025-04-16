@@ -8,7 +8,7 @@ from functools import cache
 import numpy as np
 
 # Local imports
-from blaster_core import ZZ_matmul_strided, ZZ_left_matmul_strided, FT_matmul
+from blaster_core import ZZ_left_matmul_strided, FT_matmul
 
 
 # Reduction properties:
@@ -352,8 +352,8 @@ def seysen_reduce(R, U):
 #        # S12' = R12 · U22
 #        S12 = FT_matmul(R[:m, m:], U[m:, m:].astype(np.float64))
 #
-#        # W = round(-S11^{-1} S12').
-#        W = np.rint(FT_matmul(-np.linalg.inv(S11), S12)).astype(np.int64)
+#        # U12' = round(-S11^{-1} S12').
+#        U[i:j, j:k] = np.rint(FT_matmul(-np.linalg.inv(S11), S12)).astype(np.int64)
 #
-#        # U12 = U11 · W
-#        U[:m, m:] = ZZ_matmul_strided(U[:m, :m], W)
+#        # U12 = U11 · U12'
+#        ZZ_left_matmul_strided(U[:m, :m], U[:m, m:])

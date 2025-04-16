@@ -28,14 +28,6 @@ void eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k) {
 	mc = ma * mb;
 }
 
-void eigen_matmul(const ZZ *a, const ZZ *b, ZZ *c, int n, int m, int k, int stride_a) {
-	Eigen::Map<const Matrix, Eigen::Unaligned, Stride> ma(a, n, m, Stride(stride_a, 1));
-	Eigen::Map<const Matrix> mb(b, m, k);
-	Eigen::Map<Matrix> mc(c, n, k);
-
-	mc = ma * mb;
-}
-
 /**
  * Compute the matrix product between a and b, and store the result `a * b` in `b`.
  * Dimensions of `a` and `b` are assumed to be `n x n` and `n x m` respectively.
