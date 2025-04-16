@@ -4,43 +4,6 @@
 #include "enumeration.cpp"
 #include "pruning_params.cpp"
 
-extern "C" {
-	/*
-	 * Perform LLL reduction on the basis R, and return the transformation matrix U such that RU is
-	 * LLL-reduced.
-	 *
-	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
-	 * @param U transformation matrix, that was applied to R to LLL-reduce it.
-	 *
-	 * Complexity: poly(N) (for a fixed delta < 1).
-	 */
-	void lll_reduce(const int N, FT *R, ZZ *U, const FT delta);
-
-	/*
-	 * Perform depth-deep-LLL reduction on the basis R, and return the transformation matrix U such
-	 * that RU is depth-deep-LLL-reduced.
-	 *
-	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
-	 * @param U transformation matrix, that was applied to R to deep-LLL-reduce it.
-	 * @param depth maximum number of positions allowed for 'deep insertions'
-	 *
-	 * Complexity: poly(N) (for a fixed delta < 1 and a fixed depth).
-	 */
-	void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth);
-
-	/*
-	 * Perform BKZ-beta reduction on the basis R, and return the transformation matrix U such that
-	 * RU is BKZ-beta-reduced.
-	 *
-	 * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
-	 * @param U transformation matrix, that was applied to R to deep-LLL-reduce it.
-	 * @param beta blocksize used for BKZ (dimension of SVP oracle that uses enumeration).
-	 *
-	 * Complexity: poly(N) * beta^{c_BKZ beta} for a fixed delta < 1, where c_BKZ ~ 0.125 in [1].
-	 * [1] https://doi.org/10.1007/978-3-030-56880-1_7
-	 */
-	void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, const int beta);
-}
 
 /*******************************************************************************
  * Helper functions to access the matrices R and U at row 'row' and column 'col'
@@ -155,6 +118,15 @@ void _lll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int limit_k)
 	}
 }
 
+/*
+ * Perform LLL reduction on the basis R, and return the transformation matrix U such that RU is
+ * LLL-reduced.
+ *
+ * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
+ * @param U transformation matrix, that was applied to R to LLL-reduce it.
+ *
+ * Complexity: poly(N) (for a fixed delta < 1).
+ */
 void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
 {
 	init_U(N, U);
@@ -206,6 +178,16 @@ void _deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth,
 	}
 }
 
+/*
+ * Perform depth-deep-LLL reduction on the basis R, and return the transformation matrix U such
+ * that RU is depth-deep-LLL-reduced.
+ *
+ * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
+ * @param U transformation matrix, that was applied to R to deep-LLL-reduce it.
+ * @param depth maximum number of positions allowed for 'deep insertions'
+ *
+ * Complexity: poly(N) (for a fixed delta < 1 and a fixed depth).
+ */
 void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
 {
 	 init_U(N, U);
@@ -309,10 +291,21 @@ void svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
 	 */
 
 	// [3] Algorithm 1, line 6 or 8
-	// LLL-reduce [i, i + w) such that the next enumeration is ran on an LLL-reduced basis.
+	// DeepLLL-reduce [0, i + w) such that the next enumeration runs on a DeepLLL-reduced basis.
 	_deeplll_reduce(N, R, U, delta, 4, std::min(i + w, N));
 }
 
+/*
+ * Perform BKZ-beta reduction on the basis R, and return the transformation matrix U such that
+ * RU is BKZ-beta-reduced.
+ *
+ * @param R upper-triangular matrix representing the R-factor from QR decomposing the basis.
+ * @param U transformation matrix, that was applied to R to deep-LLL-reduce it.
+ * @param beta blocksize used for BKZ (dimension of SVP oracle that uses enumeration).
+ *
+ * Complexity: poly(N) * beta^{c_BKZ beta} for a fixed delta < 1, where c_BKZ ~ 0.125 in [1].
+ * [1] https://doi.org/10.1007/978-3-030-56880-1_7
+ */
 void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta)
 {
 	ZZ sol[MAX_ENUM_N]; // coefficients of the enumeration solution for SVP in block of size beta.
@@ -323,7 +316,8 @@ void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, int beta)
 	if (beta <= 2) return;
 
 	if (beta > N) {
-		// Perform one HKZ-tour. Note: this is only done at the end of the global basis!
+		// Perform one HKZ-tour.
+		// Note: this is only done at the end of the global basis!
 		for (int i = 0; i + 2 <= N; i++) {
 			// Solve SVP on block [i, N).
 			svp(N, R, U, delta, i, N - i, sol);

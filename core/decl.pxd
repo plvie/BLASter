@@ -5,7 +5,7 @@ cdef extern from "types.hpp":
     ctypedef double FT # floating-point type
     ctypedef long long ZZ # integer type
 
-cdef extern from "block_lll.cpp" nogil:
+cdef extern from "lattice_reduction.cpp" nogil:
     void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
     void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
     void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, const int beta)
