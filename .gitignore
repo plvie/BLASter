@@ -28,3 +28,4 @@ cysignals_crash_logs/
 # Benchmarks generate big logs
 /logs/
 /logs-flatter/
+/benchmark/results/
