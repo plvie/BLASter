@@ -8,7 +8,7 @@
  * bases are simulated as having the theoretical slope of BKZ-(beta-2), in
  * attempt at predicting bases shape during progressive-BKZ
  *
- *  Generated using the script pruner.py. 
+ *  Generated using the script ./find_pruning_params.py. 
  * 
  */
 const std::vector<FT> pruning_params[MAX_ENUM_N/2 + 1] = {
