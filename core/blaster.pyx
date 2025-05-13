@@ -209,7 +209,7 @@ def ZZ_right_matmul(ZZ[:, ::1] A, const ZZ[:, ::1] B) -> None:
 def ZZ_right_matmul_strided(ZZ[:, :] A, const ZZ[:] B) -> None:
     """
     Compute A <- A * B.
-    A may have a row-stride. B should be a 1-dimensionala array of length m^2,
+    A may have a row-stride. B should be a 1-dimensional array of length m^2,
     where m is the number of columns of A.
     """
     cdef:

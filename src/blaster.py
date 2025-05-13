@@ -75,10 +75,7 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
-            if use_seysen:
-                seysen_reduce(R, U_seysen)
-            else:
-                size_reduce(R, U_seysen)
+            (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
 
         # Step 5: Update B and U with transformation from Seysen's reduction.
         t5 = perf_counter_ns()
@@ -129,10 +126,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
-            if use_seysen:
-                seysen_reduce(R, U_seysen)
-            else:
-                size_reduce(R, U_seysen)
+            (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
 
         # Step 5: Update B and U with transformation from Seysen's reduction.
         t5 = perf_counter_ns()
