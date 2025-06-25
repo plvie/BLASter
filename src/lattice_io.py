@@ -13,7 +13,7 @@ def read_qary_lattice(input_file=None):
     data = []
     if input_file is None:
         data.append(input())
-        while data[-1][-2] != ']':
+        while data[-1] != ']' and data[-1][-2] != ']':
             data.append(input())
     else:
         with open(input_file, 'r', encoding='utf-8') as f:
@@ -41,7 +41,7 @@ def read_qary_lattice(input_file=None):
     return np.ascontiguousarray(np.array(data, dtype=np.int64).transpose())
 
 
-def write_lattice(output_file, basis):
+def write_lattice(basis, output_file=None):
     """
     Outputs a basis with column vectors to a file in fplll format.
     :param output_file: file name
@@ -49,7 +49,12 @@ def write_lattice(output_file, basis):
     """
     basis = basis.transpose()
 
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write('[')
+    if output_file is None:
+        print('[', end='')
         for (i, v) in enumerate(basis):
-            f.write('[' + ' '.join(map(str, v)) + (']\n' if i < len(basis) - 1 else ']]\n'))
+            print('[' + ' '.join(map(str, v)), end=']\n' if i < len(basis) - 1 else ']]\n')
+    else:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write('[')
+            for (i, v) in enumerate(basis):
+                f.write('[' + ' '.join(map(str, v)) + (']\n' if i < len(basis) - 1 else ']]\n'))

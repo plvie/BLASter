@@ -118,9 +118,9 @@ def __main__():
     if print_mat and args.output == args.input:
         print_mat = input('WARNING: input & output files are same!\nContinue? (y/n) ') == 'y'
     if print_mat:
-        write_lattice(args.output, B_red)
+        write_lattice(B_red, args.output)
     elif not args.quiet:
-        print(B_red.astype(np.int64))
+        write_lattice(B_red)
 
     # Print time consumption
     if args.verbose:
@@ -138,5 +138,4 @@ def __main__():
 
 
 if __name__ == '__main__':
-    np.set_printoptions(linewidth=1000, threshold=2147483647, suppress=True)
     __main__()
