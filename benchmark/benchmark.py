@@ -2,6 +2,8 @@
 import os
 import subprocess
 import sys
+import csv
+import glob
 
 from flatter_conversion import convert_logfiles
 from blaster.lattice_io import read_qary_lattice
@@ -10,13 +12,14 @@ from blaster.stats import get_profile, rhf, slope
 
 # Specify which lattices we want to test:
 mqs = [
-    (128, 631),  # latticegen q 2 1 10 p
-    (256, 829561),  # latticegen q 2 1 20 p
+    #(128, 631),  # latticegen q 2 1 10 p
+    #(256, 829561),  # latticegen q 2 1 20 p
     (512, 968665207),  # latticegen q 2 1 30 p
-    (1024, 968665207),  # latticegen q 2 1 30 p
+    #(1024, 968665207),  # latticegen q 2 1 30 p
 ]
 seeds = range(10)
-cmd_blaster = "../python3 ../src/app.py -q"
+HERE = os.path.dirname(__file__)
+cmd_blaster =  f"{sys.executable} {os.path.abspath(os.path.join(HERE, '..', 'src', 'blaster', 'app.py'))} -q"
 temp_lat = "../output/temp.lat"
 other_logs = {m: open(f'./logs_other_{m}.csv', mode='w', encoding='utf8') for (m, q) in mqs}
 
@@ -62,24 +65,24 @@ def gen_lattice(m, q, seed, path):
 
 
 def run_blaster(m, q, seed, path):
-    logfile = f"../logs/lll_{m}_{q}_{seed}.csv"
+    logfile = os.path.abspath(os.path.join(HERE, '..', 'logs', f"lll_{m}_{q}_{seed}.csv"))
     run_command(f"{cmd_blaster} -i {path} -l {logfile}", logfile)
 
 
 def run_blaster_deeplll(m, q, seed, path, depth):
-    logfile = f"../logs/deeplll{depth}_{m}_{q}_{seed}.csv"
+    logfile = os.path.abspath(os.path.join(HERE, '..', 'logs', f"deeplll{depth}_{m}_{q}_{seed}.csv"))
     # outfile = path.replace('input/', f'output/d{depth}_')
     # result = run_command(f"{cmd_blaster} -i {path} -o {outfile} -l {logfile} -d{depth}")
     run_command(f"{cmd_blaster} -i {path} -l {logfile} -d{depth}", logfile)
 
 
 def run_blaster_bkz(m, q, seed, path, beta, bkz_prog=2):
-    logfile = f"../logs/progbkz{beta}_{m}_{q}_{seed}.csv"
+    logfile = os.path.abspath(os.path.join(HERE, '..', 'logs', f"progbkz{beta}_{m}_{q}_{seed}.csv"))
     run_command(f"{cmd_blaster} -i {path} -l {logfile} -b{beta} -P{bkz_prog} -t1", logfile)
 
 
 def run_flatter(m, q, seed, path, num_threads, alpha=None):
-    flogfile = f"../logs-flatter/{m}_{q}_{seed}.log"
+    flogfile = os.path.abspath(os.path.join(HERE, '..', 'logs-flatter',f"{m}_{q}_{seed}.log"))
     cmd = f"OMP_NUM_THREADS={num_threads} FLATTER_LOG={flogfile} flatter -q {path}"
     if alpha:
         cmd = f"{cmd} -alpha {alpha}"
@@ -112,10 +115,31 @@ def run_KEF21(m, q, seed, path, num_threads):
     print(','.join(str(v) for k, v in (data | t).items()), file=other_logs[m], flush=True)
 
 
+def compute_mean_times():
+    print("Mean time per lattice dimension (from logs/lll_*.csv):")
+    for (m, q) in mqs:
+        pattern = os.path.join(HERE, '..', 'logs', f"lll_{m}_{q}_*.csv")
+        files = glob.glob(pattern)
+        last_walltimes = []
+        for filename in files:
+            with open(filename, newline='') as csvfile:
+                reader = list(csv.DictReader(csvfile))
+                if reader:
+                    try:
+                        last_walltimes.append(float(reader[-1]['walltime']))
+                    except Exception:
+                        continue
+        if last_walltimes:
+            mean_walltime = sum(last_walltimes) / len(last_walltimes)
+            print(f"Dimension {m}: mean last walltime = {mean_walltime:.6f} s ({len(last_walltimes)} runs)")
+        else:
+            print(f"Dimension {m}: No data.")
+
+
 def __main__():
     global mqs
 
-    lattices = [(m, q, seed, f"../input/{m}_{q}_{seed}") for (m, q) in mqs for seed in seeds]
+    lattices = [(m, q, seed, os.path.abspath(os.path.join(HERE, '..', 'input', f'{m}_{q}_{seed}'))) for (m, q) in mqs for seed in seeds]
 
 
     for f in other_logs.values():
@@ -131,7 +155,7 @@ def __main__():
             curq = [q for (m, q) in mqs if m == dim]
             assert len(curq) == 1
             curq = curq[0]
-            lattices = [(dim, curq, seed, f"../input/{dim}_{curq}_{seed}") for seed in seeds]
+            lattices = [(dim, curq, seed, os.path.abspath(os.path.join(HERE, '..', 'input', f'{dim}_{curq}_{seed}'))) for seed in seeds]
         elif arg == 'lattices':
             for lat in lattices:
                 gen_lattice(*lat)
@@ -164,6 +188,8 @@ def __main__():
             num_threads = int(sys.argv[2 + i])
             for lat in lattices:
                 run_KEF21(*lat, num_threads)
+        elif arg == 'mean':
+            compute_mean_times()
         else:
             is_cmd = False
         has_cmd = has_cmd or is_cmd

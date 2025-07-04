@@ -8,7 +8,7 @@ from multiprocessing import cpu_count
 from sys import stderr
 from math import log2, ceil
 
-import numpy as np
+import numpy as np 
 
 # Local imports
 from lattice_io import read_qary_lattice, write_lattice

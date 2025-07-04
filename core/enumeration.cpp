@@ -17,7 +17,7 @@
  *
  * Complexity: super-exponential in N.
  */
-FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningvector, FT enumeration_radius, ZZ* sol)
+FT enumeration(const int N, const FT * __restrict R, const int rowstride, const FT * __restrict pruningvector, FT enumeration_radius, ZZ* sol)
 {
     // ensure we always return the 0-vector in sol, unless a valid solution is found
     std::fill(sol, sol+N, ZZ(0));
@@ -33,10 +33,11 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningv
 
     // initialize enumobj.muT
     // assumption: enumobj.muT is all-zero
+    alignas(64) FT* __restrict muTi;
     for (int i = 0; i < N-1; ++i) {
-        FT* muTi = &enumobj.muT[i][0];
-        const FT* Ri = R+(i*rowstride);
-        FT Rii_inv = FT(1.0) / Ri[i];
+        muTi = enumobj.muT[i];
+        const FT* __restrict Ri = R+ i*rowstride;
+        const FT  Rii_inv = FT(1.0) / Ri[i];
         for (int j = i+1; j < N; ++j) {
             // muT[i][j] = <bj,bi*> / ||bi*||^2
             muTi[j] = Ri[j] * Rii_inv;
@@ -44,9 +45,10 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningv
     }
 
     // initialize enumobj.risq
-    for (int i = 0; i < N; ++i) {
+    const FT* __restrict diag = R;
+    for (int i = 0; i < N; ++i, diag += rowstride) {
         // risq[i] = ||bi*||^2
-        enumobj.risq[i] = R[i*rowstride+i] * R[i*rowstride+i];
+        enumobj.risq[i] = diag[i] * diag[i];
     }
 
 	// set the pruning vectors
@@ -69,7 +71,7 @@ FT enumeration(const int N, const FT *R, const int rowstride, const FT *pruningv
 
     // perform enumeration
     enumobj.enumerate_recursive();
-
+    
     // the virtual basis vectors should never be used
     // if sol is non-zero for these positions then there is an internal error
     for (int i = N; i < MAX_ENUM_N; ++i) {

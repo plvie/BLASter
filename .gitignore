@@ -29,3 +29,7 @@ cysignals_crash_logs/
 /logs/
 /logs-flatter/
 /benchmark/results/
+
+logs_other_*.csv
+
+blaster.egg-info

@@ -220,8 +220,8 @@ def reduce(
     B = B.copy()  # Do not modify B in-place, but work with a copy.
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
-
     beta = kwds.get("beta")
+    time_start = perf_counter_ns()
     try:
         if not beta:
             lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
@@ -245,7 +245,8 @@ def reduce(
                            tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
         pass  # When interrupted, give the partially reduced basis.
-
+    time_end = perf_counter_ns()
+    print(f"\nTotal time: {(time_end - time_start) * 10**-9:.3f}s", file=stderr)
     # Close logfile
     if has_logfile:
         logfile.close()
@@ -261,5 +262,5 @@ def reduce(
         plt.gcf().set_size_inches(16, 9)
         # plt.show()
         ani.save(anim, dpi=120, writer=PillowWriter(fps=5))
-
+    print(tprof, file=stderr)
     return U, B, tprof
