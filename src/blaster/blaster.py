@@ -12,10 +12,11 @@ from matplotlib.animation import ArtistAnimation, PillowWriter
 
 # Local imports
 from blaster_core import \
-    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul
+    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul , get_R_sub_HKZ, apply_U_HKZ
 from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 from .stats import get_profile, rhf, slope, potential
 
+from .hkz import hkz_kernel
 
 class TimeProfile:
     """
@@ -94,6 +95,72 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         for tracer in tracers.values():
             tracer(tprof.num_iterations, prof, note)
 
+def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
+               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen):
+    """
+    Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
+    If `depth` is supplied, BLASter's deep-LLL is called in between calls of the SVP oracle.
+    Otherwise BLASter's LLL is run.
+    """
+    # BKZ parameters:
+    n, tours_done, cur_front = B.shape[1], 0, 0
+
+    lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+
+    print("starting hkz tour")
+    while tours_done < bkz_tours:
+        print("we are at :", cur_front)
+        # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
+        t1 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+
+        # Step 2: Call BKZ concurrently on small blocks!
+        t2 = perf_counter_ns()
+        # norm_before = abs(R[cur_front, cur_front])
+        # block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
+
+        #run the hkz here ?
+        w = block_size if (n - cur_front) >= block_size else (n - cur_front)
+        R_sub = get_R_sub_HKZ(R, cur_front, w)
+        U_sub = hkz_kernel(R_sub, w)
+        apply_U_HKZ(B, U, U_sub, cur_front, w)
+
+        # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
+        # Note: it does not destroy the bxb blocks, but everything above these: yes!
+        t3 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+        # assert abs(R[cur_front, cur_front]) <= norm_before
+
+        # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
+        t4 = perf_counter_ns()
+        with np.errstate(all='raise'):
+            (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
+
+        # Step 5: Update B and U with transformation from Seysen's reduction.
+        t5 = perf_counter_ns()
+        ZZ_right_matmul(U, U_seysen)
+        ZZ_right_matmul(B, U_seysen)
+
+        t6 = perf_counter_ns()
+
+        tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
+
+        # After time measurement:
+        prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
+        note = (f"HKZ-{beta}", (block_size, tours_done, bkz_tours, cur_front))
+        for tracer in tracers.values():
+            tracer(tprof.num_iterations, prof, note)
+
+        # After printing: update the current location of the 'reduction front'
+        if cur_front + (block_size // 2) > n:
+            # HKZ-reduction was performed at the end, which is the end of a tour.
+            cur_front = 0
+            tours_done += 1
+        else:
+            cur_front += (block_size // 2) # edit the jump
+
+        # Perform a final LLL reduction at the end
+        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
@@ -115,7 +182,10 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
         # norm_before = abs(R[cur_front, cur_front])
-        block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size)
+        block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
+
+        #run the hkz here ?
+        
 
         # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
@@ -221,6 +291,7 @@ def reduce(
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
     beta = kwds.get("beta")
+    hkz_use = kwds.get("hkz_use")
     time_start = perf_counter_ns()
     try:
         if not beta:
@@ -240,7 +311,12 @@ def reduce(
             # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
             # before calling the SVP oracle.
             for beta_ in betas:
-                bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                if hkz_use: 
+                    hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                           bkz_tours if beta_ == beta else 1, bkz_size,
+                           tprof, tracers, debug, use_seysen)
+                else:
+                    bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
