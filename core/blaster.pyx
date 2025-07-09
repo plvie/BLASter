@@ -177,19 +177,21 @@ def get_R_sub_HKZ(cnp.ndarray[FT, ndim=2] R, int cur_front, int w):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def apply_U_HKZ(cnp.ndarray[ZZ, ndim=2] B_red, cnp.ndarray[ZZ, ndim=2] U, cnp.ndarray[ZZ, ndim=2] U_sub, int cur_front, int w):
-    cdef int n = B_red.shape[0]
+def apply_U_HKZ(cnp.ndarray[ZZ, ndim=2] B_red,
+                cnp.ndarray[ZZ, ndim=2] U,
+                cnp.ndarray[ZZ, ndim=2] U_sub,
+                int cur_front, int w):
     cdef int i = cur_front
     cdef cnp.ndarray[ZZ, ndim=2] U_block = np.ascontiguousarray(
-        U[i:i+w, i:i+w]
-    )
-    cdef cnp.ndarray[ZZ, ndim=2] B_block = np.ascontiguousarray(
-        B_red[i:i+w, i:i+w]
+        U[:, i : i+w]
     )
     ZZ_right_matmul(U_block, U_sub)
+    U[:, i : i+w] = U_block
+    cdef cnp.ndarray[ZZ, ndim=2] B_block = np.ascontiguousarray(
+        B_red[:, i : i+w]
+    )
     ZZ_right_matmul(B_block, U_sub)
-    U[i:i+w, i:i+w] = U_block
-    B_red[i:i+w, i:i+w] = B_block
+    B_red[:, i : i+w] = B_block
 
 
 #

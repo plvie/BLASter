@@ -13,10 +13,10 @@ from matplotlib.animation import ArtistAnimation, PillowWriter
 # Local imports
 from blaster_core import \
     set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul , get_R_sub_HKZ, apply_U_HKZ
-from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
-from .stats import get_profile, rhf, slope, potential
+from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+from stats import get_profile, rhf, slope, potential
 
-from .hkz import hkz_kernel
+from hkz import hkz_kernel
 
 class TimeProfile:
     """
@@ -107,6 +107,8 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
     lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
+    test = True
+
     print("starting hkz tour")
     while tours_done < bkz_tours:
         print("we are at :", cur_front)
@@ -116,7 +118,7 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
-        # norm_before = abs(R[cur_front, cur_front])
+        norm_before = abs(R[cur_front, cur_front])
         # block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
 
         #run the hkz here ?
@@ -124,13 +126,29 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         R_sub = get_R_sub_HKZ(R, cur_front, w)
         U_sub = hkz_kernel(R_sub, w)
         apply_U_HKZ(B, U, U_sub, cur_front, w)
+        # if test:
+        #     i = cur_front
+        #     old_U_block = U[:, i : i+w].copy()
+        #     old_B_block = B[:, i : i+w].copy()
+
+        #     apply_U_HKZ(B, U, U_sub, cur_front, w)
+
+        #     # 1) Block changed?
+        #     assert not np.array_equal(old_U_block, U[:, i : i+w])
+        #     assert not np.array_equal(old_B_block, B[:, i : i+w])
+
+        #     # 2) Block matches the @ U_sub prediction
+        #     assert np.array_equal(U[:, i : i+w], old_U_block @ U_sub)
+        #     assert np.array_equal(B[:, i : i+w], old_B_block @ U_sub)
+        #     print("All checks passed — your HKZ‐block update is applied correctly!")
+
 
         # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        # assert abs(R[cur_front, cur_front]) <= norm_before
-
+        #assert abs(R[cur_front, cur_front]) <= norm_before
+        print(R[cur_front, cur_front])
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
@@ -152,7 +170,7 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
-        if cur_front + (block_size // 2) > n:
+        if cur_front + (block_size) >= n:
             # HKZ-reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
@@ -181,7 +199,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
-        # norm_before = abs(R[cur_front, cur_front])
+        norm_before = abs(R[cur_front, cur_front])
         block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
 
         #run the hkz here ?
@@ -191,7 +209,6 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        # assert abs(R[cur_front, cur_front]) <= norm_before
 
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()

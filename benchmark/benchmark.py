@@ -12,9 +12,9 @@ from blaster.stats import get_profile, rhf, slope
 
 # Specify which lattices we want to test:
 mqs = [
-    #(128, 631),  # latticegen q 2 1 10 p
+    (128, 631),  # latticegen q 2 1 10 p
     #(256, 829561),  # latticegen q 2 1 20 p
-    (512, 968665207),  # latticegen q 2 1 30 p
+    #(512, 968665207),  # latticegen q 2 1 30 p
     #(1024, 968665207),  # latticegen q 2 1 30 p
 ]
 seeds = range(10)
@@ -79,6 +79,10 @@ def run_blaster_deeplll(m, q, seed, path, depth):
 def run_blaster_bkz(m, q, seed, path, beta, bkz_prog=2):
     logfile = os.path.abspath(os.path.join(HERE, '..', 'logs', f"progbkz{beta}_{m}_{q}_{seed}.csv"))
     run_command(f"{cmd_blaster} -i {path} -l {logfile} -b{beta} -P{bkz_prog} -t1", logfile)
+
+def run_blaster_hkz(m, q, seed, path, beta):
+    logfile = os.path.abspath(os.path.join(HERE, '..', 'logs', f"hkz{beta}_{m}_{q}_{seed}.csv"))
+    run_command(f"{cmd_blaster} -i {path} -l {logfile} -b{beta} -t1", logfile)
 
 
 def run_flatter(m, q, seed, path, num_threads, alpha=None):

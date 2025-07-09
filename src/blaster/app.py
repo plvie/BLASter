@@ -71,6 +71,9 @@ def __main__():
     parser.add_argument(
             '--bkz-prog', '-P', type=int,
             help='Progressive blocksize increment for BKZ.')
+    parser.add_argument(
+            '--hkz', dest='hkz_use', action='store_true', default=False, help="Activate the HKZ Usage from G6K"
+    )
 
     # Parse the command line arguments
     args = parser.parse_args()

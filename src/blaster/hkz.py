@@ -29,16 +29,17 @@ import pickle as pickler
 import logging
 from collections import OrderedDict
 
-from .g6k.algorithms.workout import workout, pump
+from g6k.algorithms.workout import workout, pump
 from g6k.siever import Siever
 from g6k.siever_params import SieverParams
 import six
 from fpylll import IntegerMatrix, GSO
 from fpylll.tools.bkz_stats import dummy_tracer
+from fpylll.util import gaussian_heuristic
 
 import numpy as np
 from fractions import Fraction
-from math import gcd
+from math import gcd, ceil,floor
 from functools import reduce
 
 # def float64_to_integer_matrix(A: np.ndarray):
@@ -81,7 +82,17 @@ from functools import reduce
 #     return IM
 
 def float64_to_integer_matrix(A):
-    return (A*2**30).astype(np.int64)
+    max_abs = np.nanmax(np.abs(A))
+    # n = A.shape[0]
+    # print(max_abs)
+    # flat_index = np.nanargmax(absA)
+
+    # # 3) convert flat index back to 2D indices
+    # i, j = np.unravel_index(flat_index, A.shape)
+
+    # print("max |A| =", max_abs, "at (i,j) =", (i, j))
+    scale_factor = (2**62) // (int(max_abs) + 1) - 1
+    return (A * scale_factor).astype(np.int64), scale_factor
 
 def to_fpylll_integer_matrix(M):
     IM = IntegerMatrix.from_matrix(M.T)
@@ -93,13 +104,13 @@ def hkz_kernel(A,n):
         IM = A
     elif isinstance(A, np.ndarray):
         if A.dtype == np.float64:
-            M_int = float64_to_integer_matrix(A)
+            M_int, scale_factor = float64_to_integer_matrix(A)
             IM = to_fpylll_integer_matrix(M_int)
         else:
             raise TypeError(f"Unsupported NumPy dtype {A.dtype}")
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
-    params = {"pump__down_sieve": True, "pump__down_stop": 9999, "saturation_ratio":.8, "pump__prefer_left_insert":10, "workout__dim4free_min":0,"workout__dim4free_dec":15}
+    params = {"pump__down_sieve": True, "pump__down_stop": 9999, "saturation_ratio":1, "pump__prefer_left_insert":10, "workout__dim4free_min":0,"workout__dim4free_dec":15}
     kwds_ = OrderedDict()
     for k, v in params.items():
         k_ = k.replace("__", "/")
@@ -111,19 +122,34 @@ def hkz_kernel(A,n):
     pump_params = pop_prefixed_params("pump", params)
     workout_params = pop_prefixed_params("workout", params)
     gso = GSO.Mat(IM, U = IntegerMatrix.identity(IM.nrows), UinvT = IntegerMatrix.identity(IM.nrows))        # on construit l’objet GSO
-    gso.update_gso()         # calcule exactement (via GMP) tous les μ_{i,j} et B*_i
+    #gso.update_gso()
 
     g6k = Siever(gso, params)
     tracer = dummy_tracer
-
     # runs a workout woth pump-down down until the end
     workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
     #Just making sure
-    #pump(g6k, tracer, 15, n-15, 0, **pump_params)
-    #g6k.lll(0, n)
+    # pump(g6k, tracer, 15, n-15, 0, **pump_params)
+    g6k.lll(0, n)
+    # g6k.update_gso(0,n)
     U = g6k.M.U
     U_np = np.empty((U.nrows, U.ncols), dtype=np.int64)
     U.to_matrix(U_np)
+    #check that the B[0] is the smallest vector of the basis
+    B = g6k.M.B
+    B_np = np.empty((B.nrows, B.ncols), dtype=np.int64)
+    B.to_matrix(B_np)
+
+    # 2) compute squared‐lengths of each basis vector
+    #    (we use squared‐length so there’s no slow sqrt)
+    sq_norms = np.einsum('ij,ij->i', B_np, B_np)
+
+    # 3) find the index of the shortest vector
+    idx_shortest = int(np.argmin(sq_norms))
+    print("index of shortest row:", idx_shortest)
+
+    # # 4) assertion
+    # assert idx_shortest == 0, f"shortest vector is at row {idx_shortest}, not 0!"
     return np.ascontiguousarray(U_np.T)
 
 def pop_prefixed_params(prefix, params):
