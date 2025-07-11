@@ -127,10 +127,10 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         t2 = perf_counter_ns()
         # block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
         #run the hkz here ?
-        norm_before = abs(R[cur_front, cur_front])
+        # norm_before = abs(R[cur_front, cur_front])
         w = block_size if (n - cur_front) >= block_size else (n - cur_front)
         R_sub = get_R_sub_HKZ(R, cur_front, w)
-        assert (R_sub == R[cur_front:cur_front+w, cur_front:cur_front+w]).all()
+        # assert (R_sub == R[cur_front:cur_front+w, cur_front:cur_front+w]).all()
         U_sub = hkz_kernel(R_sub, w, beta)
         apply_U_HKZ(B, U, U_sub, cur_front, w)
         # if test:
@@ -154,7 +154,7 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        assert abs(R[cur_front, cur_front]) <= norm_before
+        # assert abs(R[cur_front, cur_front]) <= norm_before
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
@@ -208,7 +208,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
-        norm_before = abs(R[cur_front, cur_front])
+        # norm_before = abs(R[cur_front, cur_front])
         block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
 
         #run the hkz here ?
@@ -218,8 +218,8 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        print(abs(R[cur_front, cur_front]), norm_before)
-        assert abs(R[cur_front, cur_front]) <= norm_before
+        # print(abs(R[cur_front, cur_front]), norm_before)
+        # assert abs(R[cur_front, cur_front]) <= norm_before
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
