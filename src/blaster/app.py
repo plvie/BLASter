@@ -74,6 +74,10 @@ def __main__():
     parser.add_argument(
             '--hkz', dest='hkz_use', action='store_true', default=False, help="Activate the HKZ Usage from G6K"
     )
+    parser.add_argument(
+            '--hkz-prog', dest='hkz_prog', action='store_true', default=False, help="Use the BKZ from Blaster before switch to the HKZ from G6K"
+    )
+
 
     # Parse the command line arguments
     args = parser.parse_args()

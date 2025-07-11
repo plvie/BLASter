@@ -149,6 +149,10 @@ def hkz_kernel(A,n, beta):
     U_np = np.empty((U.nrows, U.ncols), dtype=np.int64)
     U.to_matrix(U_np)
     print(U)
+    B = g6k.M.B
+    B_red =  np.empty((B.nrows, B.ncols), dtype=np.int64)
+    B.to_matrix(B_red)
+    assert (float64_to_integer_matrix(A) @ U_np.T == B_red.T).all()
     return np.ascontiguousarray(U_np.T)
 
 def pop_prefixed_params(prefix, params):

@@ -320,6 +320,7 @@ def reduce(
     U_seysen = np.identity(n, dtype=np.int64)
     beta = kwds.get("beta")
     hkz_use = kwds.get("hkz_use")
+    hkz_prog = kwds.get("hkz_prog")
     time_start = perf_counter_ns()
     try:
         if not beta:
@@ -335,12 +336,26 @@ def reduce(
             # and repeat this until `beta' = beta`.
             betas = range(40 + ((beta - 40) % bkz_prog), beta + 1, bkz_prog)
 
+            switch_over = 70
+
             # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
             # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
             # before calling the SVP oracle.
             for beta_ in betas:
                 if hkz_use: 
-                    hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                    if hkz_prog:
+                        if beta_ < switch_over:
+                            bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                           bkz_tours if beta_ == beta else 1, bkz_size,
+                           tprof, tracers, debug, use_seysen)
+                        else:
+                            hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                           bkz_tours if beta_ == beta else 1, bkz_size,
+                           tprof, tracers, debug, use_seysen)
+
+
+                    else:
+                        hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen)
                 else:
