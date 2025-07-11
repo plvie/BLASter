@@ -33,3 +33,5 @@ cysignals_crash_logs/
 logs_other_*.csv
 
 blaster.egg-info
+
+slope-graphs-blaster

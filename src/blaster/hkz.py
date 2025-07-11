@@ -42,6 +42,13 @@ from fractions import Fraction
 from math import gcd, ceil,floor
 from functools import reduce
 
+
+from fpylll import BKZ as fplll_bkz
+from fpylll.algorithms.bkz2 import BKZReduction
+import logging
+logging.getLogger('').setLevel(logging.DEBUG)
+
+
 # def float64_to_integer_matrix(A: np.ndarray):
 #     """
 #     Convertit une matrice float64 en une matrice d'entiers exacts + facteur d'échelle.
@@ -83,73 +90,65 @@ from functools import reduce
 
 def float64_to_integer_matrix(A):
     max_abs = np.nanmax(np.abs(A))
-    # n = A.shape[0]
-    # print(max_abs)
-    # flat_index = np.nanargmax(absA)
-
-    # # 3) convert flat index back to 2D indices
-    # i, j = np.unravel_index(flat_index, A.shape)
-
-    # print("max |A| =", max_abs, "at (i,j) =", (i, j))
     scale_factor = (2**62) // (int(max_abs) + 1) - 1
-    return (A * scale_factor).astype(np.int64), scale_factor
+    return (A * scale_factor).astype(np.int64)
 
-def to_fpylll_integer_matrix(M):
-    IM = IntegerMatrix.from_matrix(M.T)
-    return IM
 
-def hkz_kernel(A,n):
+# Example usage
+# B = np.array([[...]])  # replace with your basis
+# check_gaussian_heuristic(B)
+
+def hkz_kernel(A,n, beta):
     # Pool.map only supports a single parameter
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
+        # check_gaussian_heuristic(A)
         if A.dtype == np.float64:
-            M_int, scale_factor = float64_to_integer_matrix(A)
-            IM = to_fpylll_integer_matrix(M_int)
+            #it's the R upper diagonal
+            IM = IntegerMatrix.from_matrix(float64_to_integer_matrix(A).T)
         else:
             raise TypeError(f"Unsupported NumPy dtype {A.dtype}")
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
-    params = {"pump__down_sieve": True, "pump__down_stop": 9999, "saturation_ratio":1, "pump__prefer_left_insert":10, "workout__dim4free_min":0,"workout__dim4free_dec":15}
+    params = {"pump__down_sieve": True, "workout__dim4free_min":0,"workout__dim4free_dec":1}
     kwds_ = OrderedDict()
     for k, v in params.items():
         k_ = k.replace("__", "/")
         kwds_[k_] = v
     params = kwds_
     params = SieverParams(**params)
-    reserved_n = n
-    params = params.new(reserved_n=reserved_n, otf_lift=False)
+    params = params.new(#db_size_base   = 1.1,    # ou 1.25, 1.333… selon ce que tu veux
+    # db_size_factor = 3.5,      # augmentation exponentielle
+    # db_limit       = 10_000_000,  # plafonné à 10 M
+    # sample_by_sums = True,
+    # saturation_ratio  = 0.8)
+    )
     pump_params = pop_prefixed_params("pump", params)
     workout_params = pop_prefixed_params("workout", params)
-    gso = GSO.Mat(IM, U = IntegerMatrix.identity(IM.nrows), UinvT = IntegerMatrix.identity(IM.nrows))        # on construit l’objet GSO
-    #gso.update_gso()
 
+    gso = GSO.Mat(IM, U = IntegerMatrix.identity(IM.nrows), UinvT = IntegerMatrix.identity(IM.nrows)
+    , float_type="long double", flags=GSO.ROW_EXPO)
     g6k = Siever(gso, params)
     tracer = dummy_tracer
+    # bkz = BKZReduction(g6k.M)
+    # par = fplll_bkz.Param(block_size=30, strategies=fplll_bkz.DEFAULT_STRATEGY, max_loops=1)
+    # bkz(par)
+    # g6k.update_gso(0, n)
     # runs a workout woth pump-down down until the end
-    workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
-    #Just making sure
-    # pump(g6k, tracer, 15, n-15, 0, **pump_params)
-    g6k.lll(0, n)
-    # g6k.update_gso(0,n)
+    # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
+    # #Just making sure
+
+    pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
+    # if n <= beta:
+    #     pump(g6k, tracer, 0, n, 0, **pump_params)
+    # else:
+    #     for i in range(n-beta):
+    #         pump(g6k, tracer, i, beta, 0, **pump_params)
     U = g6k.M.U
     U_np = np.empty((U.nrows, U.ncols), dtype=np.int64)
     U.to_matrix(U_np)
-    #check that the B[0] is the smallest vector of the basis
-    B = g6k.M.B
-    B_np = np.empty((B.nrows, B.ncols), dtype=np.int64)
-    B.to_matrix(B_np)
-
-    # 2) compute squared‐lengths of each basis vector
-    #    (we use squared‐length so there’s no slow sqrt)
-    sq_norms = np.einsum('ij,ij->i', B_np, B_np)
-
-    # 3) find the index of the shortest vector
-    idx_shortest = int(np.argmin(sq_norms))
-    print("index of shortest row:", idx_shortest)
-
-    # # 4) assertion
-    # assert idx_shortest == 0, f"shortest vector is at row {idx_shortest}, not 0!"
+    print(U)
     return np.ascontiguousarray(U_np.T)
 
 def pop_prefixed_params(prefix, params):
@@ -176,6 +175,91 @@ def pop_prefixed_params(prefix, params):
             poped_params[poped_key] = params.pop(key)
 
     return poped_params
+
+
+def dim4free_wrapper(dim4free_fun, blocksize):
+    """
+    Deals with correct dim4free choices for edge cases when non default
+    function is chosen.
+
+    :param dim4free_fun: the function for choosing the amount of dim4free
+    :param blocksize: the BKZ blocksize
+
+    """
+    if blocksize < 40:
+        return 0
+    dim4free = dim4free_fun(blocksize)
+    return int(min((blocksize - 40)/2, dim4free))
+
+def default_dim4free_fun(blocksize):
+    """
+    Return expected number of dimensions for free, from exact-SVP experiments.
+
+    :param blocksize: the BKZ blocksize
+
+    """
+    return int(11.5 + 0.075*blocksize)
+
+
+def pump_n_jump_bkz_tour(g6k, tracer, blocksize, jump=1,
+                         dim4free_fun=default_dim4free_fun, extra_dim4free=0,
+                         pump_params=None, goal_r0=0., verbose=False):
+    """
+    Run a PumpNjump BKZ-tour: call Pump consecutively on every (jth) block.
+
+    :param g6k: The g6k object to work with
+    :param tracer: A tracer for g6k
+    :param blocksize: dimension of the blocks
+    :param jump: only call the pump every j blocks
+    :param dim4free_fun: number of dimension for free as a function of beta (function, or string
+        e.g. `lambda x: 11.5+0.075*x`)
+    :param extra_dim4free: increase the number of dims 4 free (blocksize is increased, but not sieve
+        dimension)
+    :param pump_params: parameters to pass to the pump
+    """
+    if pump_params is None:
+        pump_params = {"down_sieve": False}
+
+    if "dim4free" in pump_params:
+        raise ValueError("In pump_n_jump_bkz, you should choose dim4free via dim4free_fun.")
+
+    d = g6k.full_n
+    g6k.shrink_db(0)
+    g6k.lll(0,d)
+    g6k.update_gso(0,d)
+
+    if isinstance(dim4free_fun, six.string_types):
+        dim4free_fun = eval(dim4free_fun)
+
+    dim4free = dim4free_wrapper(dim4free_fun, blocksize) + extra_dim4free
+    blocksize += extra_dim4free
+
+    indices  = [(0, blocksize - dim4free + i, i) for i in range(0, dim4free, jump)]
+    indices += [(i, blocksize, dim4free) for i in range(0, d - blocksize, jump)]
+    indices += [(d - blocksize + i, blocksize - i, dim4free - i) for i in range(0, dim4free, jump)]
+
+    pump_params["down_stop"] = dim4free+3
+
+    for (kappa, beta, f) in indices:
+        if verbose:
+            print( "\r k:%d, b:%d, f:%d " % (kappa, beta, f), end='')
+            sys.stdout.flush()
+
+        pump(g6k, tracer, kappa, beta, f, **pump_params)
+        g6k.lll(0, d)
+        if g6k.M.get_r(0, 0) <= goal_r0:
+            return
+
+    if verbose:
+        print( "\r k:%d, b:%d, f:%d " % (d-(blocksize-dim4free), blocksize-dim4free, 0), end='')
+        sys.stdout.flush()
+
+    pump_params["down_stop"] = blocksize - dim4free
+    pump(g6k, tracer, d-(blocksize-dim4free), blocksize-dim4free, 0, **pump_params)
+    if verbose:
+        print('')
+        sys.stdout.flush()
+
 
 # def hkz():
 #     """

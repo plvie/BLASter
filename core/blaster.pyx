@@ -173,7 +173,38 @@ def get_R_sub_HKZ(cnp.ndarray[FT, ndim=2] R, int cur_front, int w):
     cdef int j
     for j in range(w):
         memcpy(&R_sub_mv[j, 0], &R_mv[cur_front + j, cur_front], row_bytes)
-    return R_sub.T
+    return R_sub
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_G_sub_HKZ(cnp.ndarray[FT, ndim=2] R,
+                  int cur_front,
+                  int w) -> cnp.ndarray[FT]:
+    """
+    R         : matrice R globale en double (n×n)
+    cur_front : indice de départ du bloc (0-based)
+    w         : taille du bloc β
+    retourne   : bloc de Gram G_sub = R_block @ R_block.T (β×β),
+                 avec R_block = R[cur_front:cur_front+w, 0:n]
+    """
+    cdef int n = R.shape[1]
+    # 1) on alloue R_block de taille (β × n)
+    cdef cnp.ndarray[FT, ndim=2] R_block = np.empty((w, n), dtype=np.float64)
+    cdef FT[:, ::1] R_mv      = R
+    cdef FT[:, ::1] Rb_mv     = R_block
+    cdef size_t row_bytes     = n * sizeof(FT)
+    cdef int j
+
+    # 2) copie ligne par ligne TOUTES les colonnes [0..n-1]
+    for j in range(w):
+        memcpy(&Rb_mv[j, 0],
+               &R_mv[cur_front + j, 0],
+               row_bytes)
+
+    # 3) calcul du Gram local : (β×n) × (n×β) → (β×β)
+    cdef cnp.ndarray[FT, ndim=2] G_sub = FT_matmul(R_block, R_block.T)
+
+    return G_sub
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -181,18 +212,31 @@ def apply_U_HKZ(cnp.ndarray[ZZ, ndim=2] B_red,
                 cnp.ndarray[ZZ, ndim=2] U,
                 cnp.ndarray[ZZ, ndim=2] U_sub,
                 int cur_front, int w):
+    """
+    Applique U_sub (w×w) aux colonnes [cur_front:cur_front+w) de U et B_red,
+    en-place, via ZZ_right_matmul_strided.
+    """
     cdef int i = cur_front
-    cdef cnp.ndarray[ZZ, ndim=2] U_block = np.ascontiguousarray(
-        U[:, i : i+w]
-    )
-    ZZ_right_matmul(U_block, U_sub)
-    U[:, i : i+w] = U_block
-    cdef cnp.ndarray[ZZ, ndim=2] B_block = np.ascontiguousarray(
-        B_red[:, i : i+w]
-    )
-    ZZ_right_matmul(B_block, U_sub)
-    B_red[:, i : i+w] = B_block
 
+    # Vues strided sur les blocs de colonnes de U et B_red
+    cdef ZZ[:, :] U_block = U[:, i : i+w]
+    cdef ZZ[:, :] B_block = B_red[:, i : i+w]
+
+    # --- étape clé : construire un buffer 1D C-contigu de U_sub ---
+    # 1) Copie C-contiguë en 2D
+    cdef cnp.ndarray[ZZ, ndim=2] U_sub_contig = np.ascontiguousarray(U_sub)
+    # 2) Remodelage  en 1D sans changer les données
+    cdef cnp.ndarray[ZZ, ndim=1] U_sub_flat_arr = U_sub_contig.reshape((w*w,))
+    # 3) Memoryview 1D à partir du ndarray
+    cdef ZZ[:] Usub_flat = U_sub_flat_arr
+
+    # On a maintenant :
+    #   - U_block et B_block : vues sur U et B_red, chacune avec un row-stride ≠ w
+    #   - Usub_flat      : un tableau 1D C-contigu de longueur w*w
+
+    # Produit A_block ← A_block · U_sub pour A = U_block, puis B_block
+    ZZ_right_matmul_strided(U_block, Usub_flat)
+    ZZ_right_matmul_strided(B_block, Usub_flat)
 
 #
 # Integer (int64) Matrix Multiplication using Eigen, which internally uses OpenMP.
