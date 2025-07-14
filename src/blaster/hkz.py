@@ -35,78 +35,22 @@ from g6k.siever_params import SieverParams
 import six
 from fpylll import IntegerMatrix, GSO
 from fpylll.tools.bkz_stats import dummy_tracer
-from fpylll.util import gaussian_heuristic
 
 import numpy as np
-from fractions import Fraction
-from math import gcd, ceil,floor
-from functools import reduce
 
+#RHF = 1.01267^n, slope = -0.039489, ∥b_1∥ = 631.0 Total time: 199.026s
 
-from fpylll import BKZ as fplll_bkz
-from fpylll.algorithms.bkz2 import BKZReduction
-import logging
-logging.getLogger('').setLevel(logging.DEBUG)
-from sage.all import Matrix, ZZ
-
-
-# def float64_to_integer_matrix(A: np.ndarray):
-#     """
-#     Convertit une matrice float64 en une matrice d'entiers exacts + facteur d'échelle.
-#     Retourne (M_int, S) tels que A = M_int / S exactement.
-#     """
-#     # 1. convertir en rationnels
-#     R = [[Fraction(x).limit_denominator() for x in row] for row in A]
-#     # 2. lister tous les dénominateurs
-#     dens = [f.denominator for row in R for f in row]
-#     # 3. calculer le PPCM
-#     def lcm(a, b): 
-#         return a * b // gcd(a, b)
-#     S = reduce(lcm, dens, 1)
-#     # 4. construire la matrice d’entiers (dtype=object pour éviter overflow)
-#     M_int = np.empty((A.shape[0], A.shape[1]), dtype=object)
-#     for i, row in enumerate(R):
-#         for j, f in enumerate(row):
-#             M_int[i, j] = f.numerator * (S // f.denominator)
-#     return M_int, S
-
-# def to_fpylll_integer_matrix(M):
-#     """
-#     Convertit un np.ndarray dtype=object ou une liste de listes Python ints
-#     en fpylll.IntegerMatrix.
-#     """
-#     if hasattr(M, 'shape'):
-#         n, m = M.shape
-#     else:
-#         n = len(M)
-#         m = len(M[0]) if n else 0
-
-#     IM = IntegerMatrix(n, m)
-#     for i in range(n):
-#         for j in range(m):
-#             # M peut être array dtype=object ou list
-#             val = M[i][j] if getattr(M, 'dtype', None) == object else M[i, j]
-#             IM[i, j] = val
-#     return IM
 
 def float64_to_integer_matrix(A):
     max_abs = np.nanmax(np.abs(A))
     scale_factor = (2**62) // (int(max_abs) + 1) - 1
     return (A * scale_factor).astype(np.int64)
 
-
-# Example usage
-# B = np.array([[...]])  # replace with your basis
-# check_gaussian_heuristic(B)
-
 def hkz_kernel(A,n, beta):
-    # Pool.map only supports a single parameter
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
-        # check_gaussian_heuristic(A)
         if A.dtype == np.float64:
-            #it's the R upper diagonal
             IM = IntegerMatrix.from_matrix(float64_to_integer_matrix(A).T)
         else:
             raise TypeError(f"Unsupported NumPy dtype {A.dtype}")
@@ -132,29 +76,22 @@ def hkz_kernel(A,n, beta):
     , float_type="long double", flags=GSO.ROW_EXPO)
     g6k = Siever(gso, params)
     tracer = dummy_tracer
-    # bkz = BKZReduction(g6k.M)
-    # par = fplll_bkz.Param(block_size=30, strategies=fplll_bkz.DEFAULT_STRATEGY, max_loops=1)
-    # bkz(par)
-    # g6k.update_gso(0, n)
-    # runs a workout woth pump-down down until the end
+    #other mode possible 
     # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
-    # #Just making sure
-
-    pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
-    # if n <= beta:
-    #     pump(g6k, tracer, 0, n, 0, **pump_params)
-    # else:
-    #     for i in range(n-beta):
-    #         pump(g6k, tracer, i, beta, 0, **pump_params)
+    #pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
+    jump = 1
+    if n <= beta:
+        pump(g6k, tracer, 0, n, 0, **pump_params)
+    else:
+        for i in range(0,n-beta+1, jump):
+            pump(g6k, tracer, i, beta, 0, **pump_params)
     B = g6k.M.B
     A_np = (float64_to_integer_matrix(A).T)
     B_np = np.empty((B.nrows, B.ncols), dtype=int)
     B.to_matrix(B_np)
-    A = Matrix(ZZ, A_np.tolist())
-    B = Matrix(ZZ, B_np.tolist())
-    U = A.solve_left(B)
-    # assert (U @ A_np == B_np).all()
-    return np.ascontiguousarray(U.T)
+    U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
+    # assert np.allclose(np.dot(A_np.T, U), B_np.T)
+    return np.ascontiguousarray(U)
 
 def pop_prefixed_params(prefix, params):
     """
@@ -264,56 +201,3 @@ def pump_n_jump_bkz_tour(g6k, tracer, blocksize, jump=1,
     if verbose:
         print('')
         sys.stdout.flush()
-
-
-# def hkz():
-#     """
-#     Attempt HKZ reduction. 
-#     """
-#     description = hkz.__doc__
-
-#     args, all_params = parse_args(description,
-#                                   challenge_seed=0,
-#                                   pump__down_sieve=True,
-#                                   pump__down_stop=9999,
-#                                   saturation_ratio=.8,
-#                                   pump__prefer_left_insert=10,
-#                                   workout__dim4free_min=0, 
-#                                   workout__dim4free_dec=15
-#                                   )
-
-#     stats = run_all(hkz_kernel, list(all_params.values()),
-#                     lower_bound=args.lower_bound,
-#                     upper_bound=args.upper_bound,
-#                     step_size=args.step_size,
-#                     trials=args.trials,
-#                     workers=args.workers,
-#                     seed=args.seed
-#                     )
-
-#     inverse_all_params = OrderedDict([(v, k) for (k, v) in all_params.items()])
-
-#     for (n, params) in stats:
-#         stat = stats[(n, params)]
-#         if stat[0] is None:
-#             logging.info("Trace disabled")
-#             continue
-
-#         if len(stat) > 0:
-#             cputime = sum([float(node["cputime"]) for node in stat])/len(stat)
-#             walltime = sum([float(node["walltime"]) for node in stat])/len(stat)
-#             flast = sum([float(node["flast"]) for node in stat])/len(stat)
-#             avr_db, max_db = db_stats(stat)
-#             fmt = "%48s :: m: %1d, n: %2d, cputime :%7.4fs, walltime :%7.4fs, flast : %2.2f, avr_max db: 2^%2.2f, max_max db: 2^%2.2f" # noqa
-#             logging.info(fmt % (inverse_all_params[params], params.threads, n, cputime, walltime, flast, avr_db, max_db))
-#         else:
-#             logging.info("Trace disabled")
-
-#     if args.pickle:
-#         pickler.dump(stats, open("hkz-asvp-%d-%d-%d-%d.sobj" %
-#                                  (args.lower_bound, args.upper_bound, args.step_size, args.trials), "wb"))
-
-
-
-# if __name__ == '__main__':
-#     hkz()/home/paul/LWE_attack/hkz.py

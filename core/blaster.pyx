@@ -238,6 +238,7 @@ def apply_U_HKZ(cnp.ndarray[ZZ, ndim=2] B_red,
     ZZ_right_matmul_strided(U_block, Usub_flat)
     ZZ_right_matmul_strided(B_block, Usub_flat)
 
+
 #
 # Integer (int64) Matrix Multiplication using Eigen, which internally uses OpenMP.
 #

@@ -107,51 +107,27 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
     lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
-    test = True
+    if block_size < beta:
+        block_size = beta
     prof = get_profile(B)
-    print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
-              f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
-    write_lattice(B, "B_LLL")
+    # print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
+    #           f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
+    #           f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
     while tours_done < bkz_tours:
-        
+        #the best is to call hkz with the same blocksize as beta
         print("we are at :", cur_front)
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
         prof = get_profile(R, True)
-        print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
-              f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
-        # Step 2: Call BKZ concurrently on small blocks!
+        # Step 2: Call HKZ on small blocks!
         t2 = perf_counter_ns()
-        # block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
-        #run the hkz here ?
-        # norm_before = abs(R[cur_front, cur_front])
+
         w = block_size if (n - cur_front) >= block_size else (n - cur_front)
         R_sub = get_R_sub_HKZ(R, cur_front, w)
-        # assert (R_sub == R[cur_front:cur_front+w, cur_front:cur_front+w]).all()
         U_sub = hkz_kernel(R_sub, w, beta)
         apply_U_HKZ(B, U, U_sub, cur_front, w)
-        # if test:
-        #     i = cur_front
-        #     old_U_block = U[:, i : i+w].copy()
-        #     old_B_block = B[:, i : i+w].copy()
 
-        #     apply_U_HKZ(B, U, U_sub, cur_front, w)
-
-        #     # 1) Block changed?
-        #     assert not np.array_equal(old_U_block, U[:, i : i+w])
-        #     assert not np.array_equal(old_B_block, B[:, i : i+w])
-
-        #     # 2) Block matches the @ U_sub prediction
-        #     assert np.array_equal(U[:, i : i+w], old_U_block @ U_sub)
-        #     assert np.array_equal(B[:, i : i+w], old_B_block @ U_sub)
-        #     print("All checks passed — your HKZ‐block update is applied correctly!")
-
-
-        # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
-        # Note: it does not destroy the bxb blocks, but everything above these: yes!
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
         # assert abs(R[cur_front, cur_front]) <= norm_before
@@ -182,10 +158,6 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             tours_done += 1
         else:
             cur_front += (block_size - beta + 1)
-            # cur_front += (block_size // 2)
-        print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
-              f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
         # Perform a final LLL reduction at the end
         lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
@@ -208,10 +180,9 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
+        print("we are at :", cur_front)
         # norm_before = abs(R[cur_front, cur_front])
-        block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size) # this is really quick
-
-        #run the hkz here ?
+        block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size)
         
 
         # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
@@ -336,7 +307,7 @@ def reduce(
             # and repeat this until `beta' = beta`.
             betas = range(40 + ((beta - 40) % bkz_prog), beta + 1, bkz_prog)
 
-            switch_over = 70
+            switch_over = 64
 
             # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
             # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
