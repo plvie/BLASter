@@ -8,12 +8,10 @@ modes=(off on_beta on_norm)
 
 mkdir -p "cleaned"
 
-# Prépare les dossiers cibles
 for m in "${modes[@]}"; do
   mkdir -p "${OUT_ROOT}/hkz_${m}"
 done
 
-# Parcours de tous les logs
 for infile in out_dim*_*_*.log; do
   echo "Sparsifying $infile …"
 
@@ -42,4 +40,4 @@ for infile in out_dim*_*_*.log; do
 done
 
 echo
-echo "Tous les CSV sont dans ${OUT_ROOT}/hkz_off/, hkz_on_beta/ et hkz_on_norm/."
+echo "all the CSV are in ${OUT_ROOT}/hkz_off/, hkz_on_beta/ and hkz_on_norm/."

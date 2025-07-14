@@ -7,8 +7,8 @@ from sys import stderr
 from time import perf_counter_ns
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import ArtistAnimation, PillowWriter
+import cupy as cp
+from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
 # Local imports
 from blaster_core import \
@@ -16,7 +16,9 @@ from blaster_core import \
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 from stats import get_profile, rhf, slope, potential
 from lattice_io import write_lattice
+
 from hkz import hkz_kernel
+
 
 class TimeProfile:
     """
@@ -94,6 +96,99 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         note = (f"DeepLLL-{depth}" if depth else "LLL", None)
         for tracer in tracers.values():
             tracer(tprof.num_iterations, prof, note)
+
+
+
+
+def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
+               tprof, tracers, debug, use_seysen):
+    """
+    Perform BLASter's lattice reduction on basis B, and keep track of the transformation in U.
+    If `depth` is supplied, use deep insertions up to depth `depth`.
+    """
+    n, is_reduced, offset = B.shape[1], False, 0
+
+    use_gpu_lll = False
+
+    is_B_gpu = isinstance(B, cp.ndarray)
+    is_U_gpu = isinstance(U, cp.ndarray)
+    is_U_s_gpu = isinstance(U_seysen, cp.ndarray)
+
+    # 2) …and lift any host arrays up to the device once
+    B_gpu        = B        if is_B_gpu   else cp.asarray(B)
+    U_gpu        = U        if is_U_gpu   else cp.asarray(U)
+    U_s_gpu      = U_seysen if is_U_s_gpu else cp.asarray(U_seysen)
+
+    # 3) pick your GPU‐enabled block‐LLL routine # to do
+    red_fn = partial(block_deep_lll, depth) if depth else block_lll
+
+    while not is_reduced:
+        # — Step 1: QR on GPU, keep only R
+        t1 = perf_counter_ns()
+        R_gpu = cp.linalg.qr(B_gpu, mode='r')
+
+        # — Step 2: small‐block LLL on GPU
+        t2 = perf_counter_ns()
+        offset = lll_size//2 if offset==0 else 0
+        if use_gpu_lll:  # once you have a GPU version
+            # red_fn_gpu(R_gpu, B_gpu, U_gpu, delta, offset, lll_size)
+            raise "Not implemented yet"
+        else:
+            # CPU fallback for testing
+            # 1) transfer back to host
+            R_cpu = cp.asnumpy(R_gpu)
+            B_cpu = cp.asnumpy(B_gpu)
+            U_cpu = cp.asnumpy(U_gpu)
+
+            # 2) run your existing CPU version
+            red_fn(R_cpu, B_cpu, U_cpu, delta, offset, lll_size)
+
+            # 3) transfer results back to GPU
+            R_gpu = cp.asarray(R_cpu)
+            B_gpu = cp.asarray(B_cpu)
+            U_gpu = cp.asarray(U_cpu)
+
+        if debug:
+            # if you need to debug, pull just the small block back for checking
+            R_block = cp.asnumpy(R_gpu[offset:offset+lll_size, offset:offset+lll_size])
+            assert is_lll_reduced(R_block, delta)
+
+        # — Step 3: re‐QR because LLL spoiled the orthogonality above
+        t3 = perf_counter_ns()
+        R_gpu = cp.linalg.qr(B_gpu, mode='r')
+
+        # — Step 4: Seysen or size‐reduce on GPU
+        t4 = perf_counter_ns()
+        if use_seysen:
+            seysen_reduce_gpu(R_gpu, U_s_gpu)
+        else:
+            raise "Error not Implemented"
+
+        # — Step 5: update your basis and U on GPU
+        t5 = perf_counter_ns()
+        U_gpu = U_gpu @ U_s_gpu
+        B_gpu = B_gpu @ U_s_gpu
+
+        # — Step 6: check “weak LLL” on GPU (or pull diag back)
+        t6 = perf_counter_ns()
+        is_reduced = is_weakly_lll_reduced_gpu(R_gpu, delta)
+
+        # profiling & tracing
+        tprof.tick(t2-t1 + t4-t3, t3-t2, 0, t5-t4, t6-t5)
+        prof = get_profile(R_gpu, True)
+        note = (f"DeepLLL-{depth}" if depth else "LLL", None)
+        for tracer in tracers.values():
+            tracer(tprof.num_iterations, prof, note)
+
+    # 4) finally, write results back to host arrays if needed
+    if not is_U_gpu:
+        U[:] = cp.asnumpy(U_gpu)
+    if not is_B_gpu:
+        B[:] = cp.asnumpy(B_gpu)
+
+    # and if the user asked for U_seysen back on the host:
+    if not is_U_s_gpu:
+        U_seysen[:] = cp.asnumpy(U_s_gpu)
 
 def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen):
@@ -276,6 +371,9 @@ def reduce(
 
     # Set up animation
     has_animation = anim is not None
+    if has_animation:
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import ArtistAnimation, PillowWriter
     if has_animation:
         fig, ax = plt.subplots()
         ax.set(xlim=[0, n])

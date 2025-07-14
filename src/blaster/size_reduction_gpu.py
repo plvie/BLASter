@@ -6,51 +6,37 @@ In comments, the old recursive functions are kept for clarity.
 """
 from functools import cache
 import numpy as np
-# import cupy as cp
+import cupy as cp
 
 # Local imports
 from blaster_core import ZZ_left_matmul_strided, FT_matmul
 
 
-# Reduction properties:
-
-
-def is_weakly_lll_reduced(R, delta=.99):
+def is_weakly_lll_reduced_gpu(R, delta=0.99):
     """
-    Return whether R is Weakly-LLL-reduced
-    :param R: upper-triangular matrix
-    :param delta: delta-factor used in the Lovasz condition
-    :return: bool
+    Fully GPU-side check for the Weak-LLL condition:
+      ∀ pos: ||b_{pos+1}||^2 > δ · ||b_pos||^2
+    where b_pos = (R[pos,pos], 0) and b_{pos+1} = (〈R[pos,pos+1]〉_u, R[pos+1,pos+1]).
+    Returns a Python bool, but only synchronizes once at the very end.
     """
-    n = len(R)
-    for pos in range(0, n - 1):
-        # vectors are b0 = (u, 0), b1 = (v, w).
-        u = abs(R[pos, pos])
-        v, w = R[pos, pos + 1], R[pos + 1, pos + 1]
-        v_mod = ((v + u/2) % u) - u/2
+    n = R.shape[0]
+    # positions 0 .. n-2
+    i = cp.arange(n - 1)
 
-        if v_mod**2 + w**2 <= delta * u**2:
-            return False  # ||b1||^2 <= delta ||b0||^2
-    return True
+    # diagonal and super-diagonal entries
+    u = cp.abs(R[i,     i    ])   # shape (n-1,)
+    v =        R[i,     i + 1]   # shape (n-1,)
+    w =        R[i + 1, i + 1]   # shape (n-1,)
 
+    # compute centered v_mod = (v mod u) in [−u/2, +u/2)
+    v_mod = ((v + u/2) % u) - u/2
 
-def is_size_reduced(R):
-    """
-    Return whether R is size-reduced.
-    :param R: upper-triangular matrix
-    :return: bool
-    """
-    return all(max(abs(R[i, i + 1:])) <= abs(R[i, i]) / 2 for i in range(len(R) - 1))
+    # LLL condition: v_mod**2 + w**2 > δ * u**2
+    ok = (v_mod**2 + w**2) > (delta * u**2)
 
+    # cp.all returns a 0-d GPU array; .item() brings back one host bool
+    return bool(cp.all(ok).item())
 
-def is_lll_reduced(R, delta=.99):
-    """
-    Return whether R is LLL-reduced (weakly-LLL & size-reduced)
-    :param R: upper-triangular matrix
-    :param delta: delta-factor used in the Lovasz condition
-    :return: bool
-    """
-    return is_weakly_lll_reduced(R, delta) and is_size_reduced(R)
 
 
 @cache
@@ -111,138 +97,45 @@ def __reduction_ranges(n):
     return base_cases, list(reversed(result))
 
 
-@cache
-def __babai_ranges(n):
-    # Assume all indices are base cases initially
-    range_around = [False] * n
-    for (i, j, k) in __reduction_ranges(n)[1]:
-        # Mark node `j` as responsible to reduce [i, j) wrt [j, k) once Babai is at/past index j.
-        range_around[j] = (i, k)
-    return range_around
+import cupy as cp
 
-
-# Reduction algorithms
-
-
-def nearest_plane(R, T, U):
+def seysen_reduce_gpu(R_gpu, U_gpu):
     """
-    Perform Babai's Nearest Plane algorithm on multiple targets (all the columns of T), with
-    respect to the upper-triangular basis R.
-    This function updates T <- T + RU such that `T + RU` is in the fundamental Babai domain.
-    Namely, |(T + RU)_{ij}| <= 0.5 R_ii.
+    GPU version of Seysen's reduction on an upper-triangular matrix R_gpu,
+    tracking the transformation in U_gpu. Both inputs are modified in place.
 
-    Complexity: O(N n^{omega-1}) if R is a `n x n` matrix, T is a `n x N` matrix, and `N >= n`.
-
-    :param R: upper-triangular basis of a lattice.
-    :param T: matrix containing many targets requiring reduction.
-    :param U: the output transformation used to reduce T wrt R.
-    :return: Nothing! The result is in T and U.
+    :param R_gpu: cp.ndarray, upper-triangular matrix to reduce (float dtype)
+    :param U_gpu: cp.ndarray, integer transformation matrix (upper-triangular with 1s on diag)
     """
-    n = len(R)
-    if n > 1:
-        range_around = __babai_ranges(n)
-        for j in range(n-1, 0, -1):
-            # All targets are reduced w.r.t all basis vectors that come *after* j.
-            # Compute the reduction coefficient (U_j) w.r.t basis vector j.
-            U[j, :] = -np.rint((1.0 / R[j, j]) * T[j, :]).astype(np.int64)
-            # Reduce jth coordinate of T wrt b_j but only in the jth coefficient!
-            T[j, :] += R[j, j] * U[j, :]
+    n = R_gpu.shape[0]
 
-            if not range_around[j]:
-                T[j-1, :] += R[j-1, j] * U[j, :].astype(np.float64)
-            else:
-                i, k = range_around[j]
-                # Apply reduction of [j:k) on the coefficients T[i:j).
-                # R12, T1, U2 = R[i:j, j:k], T[i:j, :], U[j:k, :]
-                # T1 = T1 + R12 · U2
-                T[i:j, :] += FT_matmul(R[i:j, j:k], U[j:k, :].astype(np.float64))
-
-    # 0 is a special case because it never needs to propagate reductions.
-    U[0, :] = -np.rint((1.0 / R[0, 0]) * T[0, :]).astype(np.int64)
-    # Reduce 0th coordinate of T wrt b_0 but only in the 0th coefficient!
-    T[0, :] += R[0, 0] * U[0, :]
-
-
-def size_reduce(R, U):
-    """
-    Perform size reduction on R *inplace*, and write the transformation done to R in U, such that
-    calling this function with (R, U) will update the value R to R' = RU.
-
-    Complexity: O(n^omega) for a `n x n` matrix R.
-
-    :param R: upper-triangular basis of a lattice.
-    :param U: the matrix U to store the transformation *applied* to R.
-              U will be upper triangular with unit diagonal.
-    :return: Nothing! R is size reduced in place.
-    """
-    # Assume diag(U) = (1, 1, ..., 1).
-    n = len(R)
-
+    # Compute your base_cases and ranges on the host (they're small)
     base_cases, ranges = __reduction_ranges(n)
+
+    # 1) Handle the simple adjacent swaps
     for i in base_cases:
-        U[i, i + 1] = -round(R[i, i + 1] / R[i, i])
-        R[i, i + 1] += R[i, i] * U[i, i + 1]
+        # t = -round(R[i,i+1] / R[i,i])
+        t = -cp.rint(R_gpu[i, i+1] / R_gpu[i, i])
+        U_gpu[i, i+1] = t.astype(U_gpu.dtype)
+        R_gpu[i, i+1] += R_gpu[i, i] * t
 
+    # 2) Main reduction loops
     for (i, j, k) in ranges:
-        # Size reduce [j, k) with respect to [i, j).
-        #
-        #     [R11 R12]      [U11 U12]              [S11 S12]
-        # R = [ 0  R22], U = [ 0  U22], S = R · U = [ 0  S22]
-        #
-        # The previous iteration computed U11 and U22.
-        # Currently, R11 and R22 contain the values of
-        # S11 = R11 · U11 and S22 = R22 · U22 respectively.
+        # S12' = R[i:j, j:k] @ U[j:k, j:k]
+        S12p = R_gpu[i:j, j:k].dot(U_gpu[j:k, j:k].astype(R_gpu.dtype))
 
-        # W = R12 · U22
-        R[i:j, j:k] = FT_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
+        # U12' = round(-solve(R[i:j, i:j], S12'))
+        S11 = R_gpu[i:j, i:j]
+        U12p = cp.rint(-cp.linalg.solve(S11, S12p)).astype(U_gpu.dtype)
+        # U12p = cp.rint(-cp.linalg.inv(S11).dot(S12p)).astype(U_gpu.dtype)
+        U_gpu[i:j, j:k] = U12p
 
-        # U12', S12 = NearestPlane(S11, W)
-        nearest_plane(R[i:j, i:j], R[i:j, j:k], U[i:j, j:k])
+        # R[i:j, j:k] = S12' + S11 @ U12'
+        R_gpu[i:j, j:k] = S12p + S11.dot(U12p.astype(R_gpu.dtype))
 
-        # U12 = U11 · U12'
-        ZZ_left_matmul_strided(U[i:j, i:j], U[i:j, j:k])
+        # U[i:j, j:k] = U[i:j, i:j] @ U12'
+        U_gpu[i:j, j:k] = U_gpu[i:j, i:j].dot(U12p)
 
-
-def seysen_reduce(R, U):
-    """
-    Perform Seysen's reduction on a matrix R, while keeping track of the transformation matrix U.
-    The matrix R is updated along the way.
-
-    :param R: an upper-triangular matrix that will be modified
-    :param U: an upper-triangular transformation matrix such that diag(U) = (1, 1, ..., 1).
-    :return: Nothing! R is Seysen reduced in place.
-    """
-    # Assume diag(U) = (1, 1, ..., 1).
-    n = len(R)
-
-    base_cases, ranges = __reduction_ranges(n)
-    for i in base_cases:
-        U[i, i + 1] = -round(R[i, i + 1] / R[i, i])
-        R[i, i + 1] += R[i, i] * U[i, i + 1]
-
-    for (i, j, k) in ranges:
-        # Seysen reduce [j, k) with respect to [i, j).
-        #
-        #     [R11 R12]      [U11 U12]              [S11 S12]
-        # R = [ 0  R22], U = [ 0  U22], S = R · U = [ 0  S22]
-        #
-        # The previous iteration has computed U11 and U22.
-        # Currently, R11 and R22 contain the values of
-        # S11 = R11 · U11 and S22 = R22 · U22 respectively.
-
-        # S12' = R12 · U22.
-        R[i:j, j:k] = FT_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
-
-        # U12' = round(-S11^{-1} · S12').
-        U[i:j, j:k] = np.rint(
-            FT_matmul(-np.linalg.inv(R[i:j, i:j]), R[i:j, j:k])
-        ).astype(np.int64)
-
-        # S12 = S12' + S11 · U12'.
-        R[i:j, j:k] += FT_matmul(R[i:j, i:j], U[i:j, j:k].astype(np.float64))
-
-        # U12 = U11 · U12'
-        ZZ_left_matmul_strided(U[i:j, i:j], U[i:j, j:k])
 
 
 # For didactical reasons, here are the recursive versions of:
