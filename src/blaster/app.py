@@ -77,6 +77,10 @@ def __main__():
     parser.add_argument(
             '--hkz-prog', dest='hkz_prog', action='store_true', default=False, help="Use the BKZ from Blaster before switch to the HKZ from G6K"
     )
+    parser.add_argument(
+            '--pnj', dest='pump_and_jump', action='store_true', default=False, help="Use the pump and jump tactic instead of the classical one for G6K"
+    )
+
 
 
     # Parse the command line arguments

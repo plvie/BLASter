@@ -135,7 +135,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     red_fn = partial(block_deep_lll, depth) if depth else block_lll
     #red_fn = partial(block_deep_lll_gpu, depth) if depth else block_lll_gpu
 
-    logging = False
+    logging = True
     while not is_reduced:
         # — Step 1: QR on GPU, keep only R
         t1 = perf_counter_ns()
@@ -162,10 +162,11 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             # R_gpu = cp.asarray(R_cpu)
             U_gpu = cp.asarray(U_cpu)
 
-        if debug:
-            # if you need to debug, pull just the small block back for checking
-            R_block = cp.asnumpy(R_gpu[offset:offset+lll_size, offset:offset+lll_size])
-            assert is_lll_reduced(R_block, delta)
+        # because we don't copy R here don't check debug
+        # if debug: 
+        #     # if you need to debug, pull just the small block back for checking
+        #     R_block = cp.asnumpy(R_gpu[offset:offset+lll_size, offset:offset+lll_size])
+        #     assert is_lll_reduced(R_block, delta)
 
         # — Step 3: re‐QR because LLL spoiled the orthogonality above
         t3 = perf_counter_ns()
@@ -213,7 +214,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         U_seysen[:] = cp.asnumpy(U_s_gpu)
 
 def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen):
+               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump):
     """
     Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, BLASter's deep-LLL is called in between calls of the SVP oracle.
@@ -224,7 +225,7 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
     hkz_kernel = hkz_kernel_wrapper()
 
-    lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+    lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
     if block_size < beta:
         block_size = beta
@@ -234,7 +235,8 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     #           f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
     while tours_done < bkz_tours:
         #the best is to call hkz with the same blocksize as beta
-        print("we are at :", cur_front)
+        print("(HKZ) we are at :", cur_front)
+        
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
@@ -244,7 +246,7 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         w = block_size if (n - cur_front) >= block_size else (n - cur_front)
         R_sub = get_R_sub_HKZ(R, cur_front, w)
-        U_sub = hkz_kernel(R_sub, w, beta)
+        U_sub = hkz_kernel(R_sub, w, beta, pump_and_jump)
         apply_U_HKZ(B, U, U_sub, cur_front, w)
 
         t3 = perf_counter_ns()
@@ -278,7 +280,7 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         else:
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
-        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
@@ -290,7 +292,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
 
-    lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+    lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
     while tours_done < bkz_tours:
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
@@ -299,7 +301,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
-        print("we are at :", cur_front)
+        print("(BKZ) we are at :", cur_front)
         # norm_before = abs(R[cur_front, cur_front])
         block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size)
         
@@ -340,7 +342,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             #cur_front += 1
 
         # Perform a final LLL reduction at the end
-        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 
 def reduce(
@@ -414,6 +416,7 @@ def reduce(
     beta = kwds.get("beta")
     hkz_use = kwds.get("hkz_use")
     hkz_prog = kwds.get("hkz_prog")
+    pump_and_jump = kwds.get("pump_and_jump")
     time_start = perf_counter_ns()
     try:
         if not beta:
@@ -437,20 +440,20 @@ def reduce(
             for beta_ in betas:
                 if hkz_use: 
                     if hkz_prog:
-                        if beta_ < switch_over:
+                        if beta_ <= switch_over:
                             bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen)
                         else:
                             hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
-                           tprof, tracers, debug, use_seysen)
+                           tprof, tracers, debug, use_seysen, pump_and_jump)
 
 
                     else:
                         hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
-                           tprof, tracers, debug, use_seysen)
+                           tprof, tracers, debug, use_seysen, pump_and_jump)
                 else:
                     bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,

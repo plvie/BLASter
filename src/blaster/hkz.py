@@ -46,7 +46,7 @@ def float64_to_integer_matrix(A):
     scale_factor = (2**62) // (int(max_abs) + 1) - 1
     return (A * scale_factor).astype(np.int64)
 
-def hkz_kernel(A,n, beta):
+def hkz_kernel(A,n, beta, pump_and_jump):
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
@@ -78,13 +78,15 @@ def hkz_kernel(A,n, beta):
     tracer = dummy_tracer
     #other mode possible 
     # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
-    #pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
-    jump = 1
-    if n <= beta:
-        pump(g6k, tracer, 0, n, 0, **pump_params)
+    if pump_and_jump:
+        pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
     else:
-        for i in range(0,n-beta+1, jump):
-            pump(g6k, tracer, i, beta, 0, **pump_params)
+        jump = 1
+        if n <= beta:
+            pump(g6k, tracer, 0, n, 0, **pump_params)
+        else:
+            for i in range(0,n-beta+1, jump):
+                pump(g6k, tracer, i, beta, 0, **pump_params)
     B = g6k.M.B
     A_np = (float64_to_integer_matrix(A).T)
     B_np = np.empty((B.nrows, B.ncols), dtype=int)
