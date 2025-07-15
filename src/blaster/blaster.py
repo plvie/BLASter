@@ -19,6 +19,14 @@ from lattice_io import write_lattice
 
 from hkz import hkz_kernel
 
+_hkz_kernel = None
+
+def hkz_kernel_wrapper():
+    global _hkz_kernel
+    if _hkz_kernel is None:
+        from hkz import hkz_kernel as _hkz_kernel
+    return _hkz_kernel
+
 
 class TimeProfile:
     """
@@ -106,7 +114,10 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     Perform BLASter's lattice reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, use deep insertions up to depth `depth`.
     """
-    n, is_reduced, offset = B.shape[1], False, 0
+    n, is_reduced, offset = B.shape[1], 0, 0
+
+
+    host_flag = cp.cuda.alloc_pinned_memory(1)
 
     use_gpu_lll = False
 
@@ -119,15 +130,18 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     U_gpu        = U        if is_U_gpu   else cp.asarray(U)
     U_s_gpu      = U_seysen if is_U_s_gpu else cp.asarray(U_seysen)
 
+
     # 3) pick your GPU‐enabled block‐LLL routine # to do
     red_fn = partial(block_deep_lll, depth) if depth else block_lll
+    #red_fn = partial(block_deep_lll_gpu, depth) if depth else block_lll_gpu
 
+    logging = False
     while not is_reduced:
         # — Step 1: QR on GPU, keep only R
         t1 = perf_counter_ns()
         R_gpu = cp.linalg.qr(B_gpu, mode='r')
 
-        # — Step 2: small‐block LLL on GPU
+        # — Step 2: small‐block LLL on GPU (further work)
         t2 = perf_counter_ns()
         offset = lll_size//2 if offset==0 else 0
         if use_gpu_lll:  # once you have a GPU version
@@ -144,8 +158,8 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             red_fn(R_cpu, B_cpu, U_cpu, delta, offset, lll_size)
 
             # 3) transfer results back to GPU
-            R_gpu = cp.asarray(R_cpu)
             B_gpu = cp.asarray(B_cpu)
+            # R_gpu = cp.asarray(R_cpu)
             U_gpu = cp.asarray(U_cpu)
 
         if debug:
@@ -171,14 +185,22 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
         # — Step 6: check “weak LLL” on GPU (or pull diag back)
         t6 = perf_counter_ns()
-        is_reduced = is_weakly_lll_reduced_gpu(R_gpu, delta)
+
+
+        is_weakly_lll_reduced_gpu(R_gpu, host_flag, delta)
+        
 
         # profiling & tracing
         tprof.tick(t2-t1 + t4-t3, t3-t2, 0, t5-t4, t6-t5)
-        prof = get_profile(R_gpu, True)
-        note = (f"DeepLLL-{depth}" if depth else "LLL", None)
-        for tracer in tracers.values():
-            tracer(tprof.num_iterations, prof, note)
+        if logging:
+            prof = get_profile(R_gpu, True)
+            note = (f"DeepLLL-{depth}" if depth else "LLL", None)
+            for tracer in tracers.values():
+                tracer(tprof.num_iterations, prof, note)
+
+        
+        mv = memoryview(host_flag)
+        is_reduced = mv[0]
 
     # 4) finally, write results back to host arrays if needed
     if not is_U_gpu:
@@ -199,6 +221,8 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     """
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
+
+    hkz_kernel = hkz_kernel_wrapper()
 
     lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
@@ -393,7 +417,7 @@ def reduce(
     time_start = perf_counter_ns()
     try:
         if not beta:
-            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+            lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
         else:
             # Parse BKZ parameters:
             bkz_tours = kwds.get("bkz_tours") or 1
