@@ -3,6 +3,7 @@ Utility functions for computing the basis profile of a given basis, and measurin
 """
 from math import exp, gamma, log2, pi
 import numpy as np
+import cupy as cp
 
 
 def get_profile(basis, is_upper=False):
@@ -14,6 +15,19 @@ def get_profile(basis, is_upper=False):
     """
     upper = basis if is_upper else np.linalg.qr(basis, mode='r')
     return [log2(abs(d_i)) for d_i in upper.diagonal()]
+
+
+def get_profile_gpu(basis_gpu, is_upper=False):
+    """
+    GPU version: Return the profile of a basis (log2 ||b_i*||), computed entirely on the GPU.
+    
+    :param basis_gpu: cp.ndarray, basis for a lattice (must be on GPU)
+    :param is_upper: bool, whether the basis is already upper-triangular
+    :return: cp.ndarray of log2(||b_i*||)
+    """
+    upper = basis_gpu if is_upper else cp.linalg.qr(basis_gpu, mode='r')
+    diag = cp.abs(cp.diag(upper))
+    return cp.log2(diag)
 
 
 def gh(dim):

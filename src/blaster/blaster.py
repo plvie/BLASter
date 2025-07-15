@@ -14,19 +14,10 @@ from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 from blaster_core import \
     set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
-from stats import get_profile, rhf, slope, potential
+from stats import get_profile, rhf, slope, potential, get_profile_gpu
 from lattice_io import write_lattice
 
 from hkz import hkz_kernel
-
-_hkz_kernel = None
-
-def hkz_kernel_wrapper():
-    global _hkz_kernel
-    if _hkz_kernel is None:
-        from hkz import hkz_kernel as _hkz_kernel
-    return _hkz_kernel
-
 
 class TimeProfile:
     """
@@ -137,7 +128,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
     logging = True
     while not is_reduced:
-        # — Step 1: QR on GPU, keep only R
+        # — Step 1: QR on GPU
         t1 = perf_counter_ns()
         R_gpu = cp.linalg.qr(B_gpu, mode='r')
 
@@ -154,7 +145,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             B_cpu = cp.asnumpy(B_gpu)
             U_cpu = cp.asnumpy(U_gpu)
 
-            # 2) run your existing CPU version
+            # 2) run existing CPU version
             red_fn(R_cpu, B_cpu, U_cpu, delta, offset, lll_size)
 
             # 3) transfer results back to GPU
@@ -168,7 +159,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         #     R_block = cp.asnumpy(R_gpu[offset:offset+lll_size, offset:offset+lll_size])
         #     assert is_lll_reduced(R_block, delta)
 
-        # — Step 3: re‐QR because LLL spoiled the orthogonality above
+        # — Step 3: re‐QR
         t3 = perf_counter_ns()
         R_gpu = cp.linalg.qr(B_gpu, mode='r')
 
@@ -194,7 +185,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         # profiling & tracing
         tprof.tick(t2-t1 + t4-t3, t3-t2, 0, t5-t4, t6-t5)
         if logging:
-            prof = get_profile(R_gpu, True)
+            prof = get_profile_gpu(R_gpu, True).get()
             note = (f"DeepLLL-{depth}" if depth else "LLL", None)
             for tracer in tracers.values():
                 tracer(tprof.num_iterations, prof, note)
@@ -208,8 +199,6 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         U[:] = cp.asnumpy(U_gpu)
     if not is_B_gpu:
         B[:] = cp.asnumpy(B_gpu)
-
-    # and if the user asked for U_seysen back on the host:
     if not is_U_s_gpu:
         U_seysen[:] = cp.asnumpy(U_s_gpu)
 
@@ -223,16 +212,10 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
 
-    hkz_kernel = hkz_kernel_wrapper()
-
     lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
     if block_size < beta:
         block_size = beta
-    prof = get_profile(B)
-    # print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-    #           f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
-    #           f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
     while tours_done < bkz_tours:
         #the best is to call hkz with the same blocksize as beta
         print("(HKZ) we are at :", cur_front)
@@ -240,7 +223,6 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        prof = get_profile(R, True)
         # Step 2: Call HKZ on small blocks!
         t2 = perf_counter_ns()
 

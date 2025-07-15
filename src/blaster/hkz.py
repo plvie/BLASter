@@ -38,6 +38,9 @@ from fpylll.tools.bkz_stats import dummy_tracer
 
 import numpy as np
 
+import gc
+import cupy as cp
+
 #RHF = 1.01267^n, slope = -0.039489, ∥b_1∥ = 631.0 Total time: 199.026s
 
 
@@ -92,8 +95,15 @@ def hkz_kernel(A,n, beta, pump_and_jump):
     B_np = np.empty((B.nrows, B.ncols), dtype=int)
     B.to_matrix(B_np)
     U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
+
+    # Cleanup before return just to be extra safe about memory usage
+    del IM, gso, g6k, B, B_np, A_np, params, pump_params, workout_params, tracer
+
+    gc.collect()
+    cp.get_default_memory_pool().free_all_blocks()
+    cp.get_default_pinned_memory_pool().free_all_blocks()
     # assert np.allclose(np.dot(A_np.T, U), B_np.T)
-    return np.ascontiguousarray(U)
+    return U
 
 def pop_prefixed_params(prefix, params):
     """

@@ -35,3 +35,7 @@ logs_other_*.csv
 blaster.egg-info
 
 slope-graphs-blaster
+
+logs_errors
+
+*.log
