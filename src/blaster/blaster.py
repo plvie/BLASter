@@ -126,7 +126,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     red_fn = partial(block_deep_lll, depth) if depth else block_lll
     #red_fn = partial(block_deep_lll_gpu, depth) if depth else block_lll_gpu
 
-    logging = True
+    logging = False
     while not is_reduced:
         # — Step 1: QR on GPU
         t1 = perf_counter_ns()

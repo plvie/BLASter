@@ -107,7 +107,7 @@ def __reduction_ranges(n):
 import cupy as cp
 
 __reduction_cache = {}
-
+_rows_cache = {}
 
 def seysen_reduce_gpu(R_gpu, U_gpu):
     """
@@ -123,16 +123,10 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     if n not in __reduction_cache:
         base_cases, ranges = __reduction_ranges(n)
         i_arr = cp.array(base_cases, dtype=cp.int32)
-        __reduction_cache[n] = (base_cases, ranges, i_arr)
+        ranges_np_full = cp.asarray(ranges, dtype=cp.int32)
+        __reduction_cache[n] = (base_cases, ranges, i_arr, ranges_np_full)
     else:
-        base_cases, ranges, i_arr = __reduction_cache[n]
-
-    # 1) Handle the simple adjacent swaps
-    # for i in base_cases:
-    #     # t = -round(R[i,i+1] / R[i,i])
-    #     t = -cp.rint(R_gpu[i, i+1] / R_gpu[i, i])
-    #     U_gpu[i, i+1] = t.astype(U_gpu.dtype)
-    #     R_gpu[i, i+1] += R_gpu[i, i] * t
+        base_cases, ranges, i_arr, ranges_np_full = __reduction_cache[n]
 
     if base_cases:
         # gather diagonals and super‐diagonals
@@ -148,7 +142,7 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
 
     m = len(ranges)
     #param ici
-    min_batch = 32
+    min_batch = 8
     level = 1
     offset = 0
     while True:
@@ -171,11 +165,13 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
 
         # remplir
 
-        ranges_np = cp.asarray(current_ranges, dtype=cp.int32)
+        ranges_np = ranges_np_full[offset : offset + batch_size]
         i_arr, j_arr, k_arr = ranges_np[:, 0], ranges_np[:, 1], ranges_np[:, 2]
 
         batch_size = len(current_ranges)
-        rows = cp.arange(max_w)
+        if max_w not in _rows_cache:
+            _rows_cache[max_w] = cp.arange(max_w, dtype=cp.int32)
+        rows = _rows_cache[max_w]
 
         # indices lignes et colonnes pour chaque bloc (N, w)
         I = i_arr[:, None] + rows[None, :]
@@ -184,24 +180,13 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
         # on veut construire R11[idx, :, :] = R_gpu[I[idx], I[idx]]
         # donc (N, w, w) = gather des lignes puis des colonnes
 
-        # Step 1: gather lignes → (N, w, n)
-        R_lines = cp.take_along_axis(R_gpu[None, :, :], I[:, :, None], axis=1)  # (N, w, n)
+        R11 = R_gpu[I[:, :, None], I[:, None, :]]      # -> (N, w, w)
 
-        # Step 2: gather colonnes → (N, w, w)
-        R11 = cp.take_along_axis(R_lines, I[:, None, :], axis=2)  # (N, w, w)
+        # R12[b,i,j] = R_gpu[I[b,i], J[b,j]]
+        R12 = R_gpu[I[:, :, None], J[:, None, :]]      # -> (N, w, w)
 
-        # Même chose pour R12
-        R12_lines = cp.take_along_axis(R_gpu[None, :, :], I[:, :, None], axis=1)
-        R12 = cp.take_along_axis(R12_lines, J[:, None, :], axis=2)
-
-        # Même chose pour U22
-        U22_lines = cp.take_along_axis(Uf_gpu[None, :, :], J[:, :, None], axis=1)
-        U22 = cp.take_along_axis(U22_lines, J[:, None, :], axis=2)
-        # for idx, (i, j, k) in enumerate(current_ranges):
-        #     w1, w2 = j - i, k - j
-        #     R11[idx, :w1, :w1] = R_gpu[i:j, i:j]
-        #     R12[idx, :w1, :w2] = R_gpu[i:j, j:k]
-        #     U22[idx, :w2, :w2] = Uf_gpu[j:k, j:k]
+        # U22[b,i,j] = Uf_gpu[J[b,i], J[b,j]]
+        U22 = Uf_gpu[J[:, :, None], J[:, None, :]]     # -> (N, w, w)
 
         # batched GEMM + solve
         S12 = cp.matmul(R12, U22)
@@ -213,10 +198,7 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
         N = len(current_ranges)
 
         # Étape 1 : gather lignes
-        Uf_lines = cp.take_along_axis(Uf_gpu[None, :, :], I[:, :, None], axis=1)  # (N, w, n)
-
-        # Étape 2 : gather colonnes
-        Uf_block_batch = cp.take_along_axis(Uf_lines, I[:, None, :], axis=2)      # (N, w, w)
+        Uf_block_batch = Uf_gpu[I[:, :, None], I[:, None, :]] 
 
         # 2. Matmul batched
         R12_batch  = cp.matmul(R11_batch, U12_batch)   # (N, max_w, max_w)
@@ -228,17 +210,6 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
         for idx, (i, j, k) in enumerate(current_ranges):
             R_gpu[i:j, j:k] = S12[idx] + R12_batch[idx]
             Uf_gpu[i:j, j:k] = Uf12_batch[idx]
-
-
-        # # mise à jour
-        # print("test")
-        # for idx, (i, j, k) in enumerate(current_ranges):
-        #     w1, w2 = j - i, k - j
-        #     print("w1,w2", w1, w2)
-        #     s12 = S12[idx, :w1, :w2]
-        #     u12 = U12[idx, :w1, :w2]
-        #     R_gpu[i:j, j:k]   = s12 + R11[idx, :w1, :w1].dot(u12)
-        #     Uf_gpu[i:j, j:k] = Uf_gpu[i:j, i:j].dot(u12)
 
         # avancer l'offset et augmenter le niveau
         offset += batch_size
