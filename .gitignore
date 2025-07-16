@@ -39,3 +39,5 @@ slope-graphs-blaster
 logs_errors
 
 *.log
+gpu_temp_log.csv
+*.html

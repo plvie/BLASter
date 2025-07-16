@@ -106,6 +106,9 @@ def __reduction_ranges(n):
 
 import cupy as cp
 
+__reduction_cache = {}
+
+
 def seysen_reduce_gpu(R_gpu, U_gpu):
     """
     GPU version of Seysen's reduction on an upper-triangular matrix R_gpu,
@@ -116,8 +119,13 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     """
     n = R_gpu.shape[0]
 
-    # Compute your base_cases and ranges on the host (they're small)
-    base_cases, ranges = __reduction_ranges(n)
+    # Use cached ranges if available
+    if n not in __reduction_cache:
+        base_cases, ranges = __reduction_ranges(n)
+        i_arr = cp.array(base_cases, dtype=cp.int32)
+        __reduction_cache[n] = (base_cases, ranges, i_arr)
+    else:
+        base_cases, ranges, i_arr = __reduction_cache[n]
 
     # 1) Handle the simple adjacent swaps
     # for i in base_cases:
@@ -127,7 +135,6 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     #     R_gpu[i, i+1] += R_gpu[i, i] * t
 
     if base_cases:
-        i_arr = cp.array(base_cases, dtype=cp.int32)
         # gather diagonals and super‐diagonals
         u = R_gpu[i_arr, i_arr]
         v = R_gpu[i_arr, i_arr + 1]
@@ -158,33 +165,58 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
 
         # déterminer la largeur max pour le padding
         # allouer les cubes 3D
-        R11 = cp.zeros((batch_size, max_w, max_w), dtype=R_gpu.dtype)
-        R12 = cp.zeros((batch_size, max_w, max_w), dtype=R_gpu.dtype)
-        U22 = cp.zeros((batch_size, max_w, max_w), dtype=R_gpu.dtype)
+        # R11 = cp.empty((batch_size, max_w, max_w), dtype=R_gpu.dtype)
+        # R12 = cp.empty((batch_size, max_w, max_w), dtype=R_gpu.dtype)
+        # U22 = cp.empty((batch_size, max_w, max_w), dtype=R_gpu.dtype)
 
         # remplir
-        for idx, (i, j, k) in enumerate(current_ranges):
-            w1, w2 = j - i, k - j
-            R11[idx, :w1, :w1] = R_gpu[i:j, i:j]
-            R12[idx, :w1, :w2] = R_gpu[i:j, j:k]
-            U22[idx, :w2, :w2] = Uf_gpu[j:k, j:k]
+
+        ranges_np = cp.asarray(current_ranges, dtype=cp.int32)
+        i_arr, j_arr, k_arr = ranges_np[:, 0], ranges_np[:, 1], ranges_np[:, 2]
+
+        batch_size = len(current_ranges)
+        rows = cp.arange(max_w)
+
+        # indices lignes et colonnes pour chaque bloc (N, w)
+        I = i_arr[:, None] + rows[None, :]
+        J = j_arr[:, None] + rows[None, :]
+
+        # on veut construire R11[idx, :, :] = R_gpu[I[idx], I[idx]]
+        # donc (N, w, w) = gather des lignes puis des colonnes
+
+        # Step 1: gather lignes → (N, w, n)
+        R_lines = cp.take_along_axis(R_gpu[None, :, :], I[:, :, None], axis=1)  # (N, w, n)
+
+        # Step 2: gather colonnes → (N, w, w)
+        R11 = cp.take_along_axis(R_lines, I[:, None, :], axis=2)  # (N, w, w)
+
+        # Même chose pour R12
+        R12_lines = cp.take_along_axis(R_gpu[None, :, :], I[:, :, None], axis=1)
+        R12 = cp.take_along_axis(R12_lines, J[:, None, :], axis=2)
+
+        # Même chose pour U22
+        U22_lines = cp.take_along_axis(Uf_gpu[None, :, :], J[:, :, None], axis=1)
+        U22 = cp.take_along_axis(U22_lines, J[:, None, :], axis=2)
+        # for idx, (i, j, k) in enumerate(current_ranges):
+        #     w1, w2 = j - i, k - j
+        #     R11[idx, :w1, :w1] = R_gpu[i:j, i:j]
+        #     R12[idx, :w1, :w2] = R_gpu[i:j, j:k]
+        #     U22[idx, :w2, :w2] = Uf_gpu[j:k, j:k]
 
         # batched GEMM + solve
         S12 = cp.matmul(R12, U22)
         U12 = cp.rint(-cp.linalg.solve(R11, S12))
-
-
-
-                # mise à jour
+        # mise à jour
         U12_batch  = U12[:, :max_w, :max_w]     # (N, max_w, max_w)
         R11_batch  = R11[:, :max_w, :max_w]     # (N, max_w, max_w)
 
         N = len(current_ranges)
-        Uf_block_batch = cp.empty((N, max_w, max_w), dtype=Uf_gpu.dtype)
 
-        # Remplir les blocs (gather manuelle)
-        for idx, (i, j, k) in enumerate(current_ranges):
-            Uf_block_batch[idx] = Uf_gpu[i:j, i:j]
+        # Étape 1 : gather lignes
+        Uf_lines = cp.take_along_axis(Uf_gpu[None, :, :], I[:, :, None], axis=1)  # (N, w, n)
+
+        # Étape 2 : gather colonnes
+        Uf_block_batch = cp.take_along_axis(Uf_lines, I[:, None, :], axis=2)      # (N, w, w)
 
         # 2. Matmul batched
         R12_batch  = cp.matmul(R11_batch, U12_batch)   # (N, max_w, max_w)

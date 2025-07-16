@@ -54,6 +54,9 @@ def hkz_kernel(A,n, beta, pump_and_jump):
         IM = A
     elif isinstance(A, np.ndarray):
         if A.dtype == np.float64:
+            max_abs = np.nanmax(np.abs(A))
+            scale_factor = (2**62) // (int(max_abs) + 1) - 1
+            # print(np.nanmax(np.abs(A - float64_to_integer_matrix(A).astype(np.float64)/scale_factor)))
             IM = IntegerMatrix.from_matrix(float64_to_integer_matrix(A).T)
         else:
             raise TypeError(f"Unsupported NumPy dtype {A.dtype}")
@@ -75,9 +78,9 @@ def hkz_kernel(A,n, beta, pump_and_jump):
     pump_params = pop_prefixed_params("pump", params)
     workout_params = pop_prefixed_params("workout", params)
 
-    gso = GSO.Mat(IM, U = IntegerMatrix.identity(IM.nrows), UinvT = IntegerMatrix.identity(IM.nrows)
-    , float_type="long double", flags=GSO.ROW_EXPO)
-    g6k = Siever(gso, params)
+    # gso = GSO.Mat(IM, U = IntegerMatrix.identity(IM.nrows), UinvT = IntegerMatrix.identity(IM.nrows)
+    # , float_type="long double", flags=GSO.ROW_EXPO)
+    g6k = Siever(IM, params)
     tracer = dummy_tracer
     #other mode possible 
     # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
@@ -97,7 +100,7 @@ def hkz_kernel(A,n, beta, pump_and_jump):
     U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
 
     # Cleanup before return just to be extra safe about memory usage
-    del IM, gso, g6k, B, B_np, A_np, params, pump_params, workout_params, tracer
+    del IM, g6k, B, B_np, A_np, params, pump_params, workout_params, tracer
 
     gc.collect()
     cp.get_default_memory_pool().free_all_blocks()
