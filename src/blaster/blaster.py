@@ -12,7 +12,7 @@ from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
 # Local imports
 from blaster_core import \
-    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ
+    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 from stats import get_profile, rhf, slope, potential, get_profile_gpu
 from lattice_io import write_lattice
@@ -123,8 +123,8 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
 
     # 3) pick your GPU‐enabled block‐LLL routine # to do
-    red_fn = partial(block_deep_lll, depth) if depth else block_lll
-    #red_fn = partial(block_deep_lll_gpu, depth) if depth else block_lll_gpu
+    #red_fn = partial(block_deep_lll, depth) if depth else block_lll
+    red_fn = partial(block_deep_lll_gpu, depth) if depth else block_lll_gpu
 
     logging = False
     while not is_reduced:
@@ -142,22 +142,37 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             # CPU fallback for testing
             # 1) transfer back to host
             R_cpu = cp.asnumpy(R_gpu)
-            B_cpu = cp.asnumpy(B_gpu)
-            U_cpu = cp.asnumpy(U_gpu)
 
             # 2) run existing CPU version
-            red_fn(R_cpu, B_cpu, U_cpu, delta, offset, lll_size)
+            U_sub = red_fn(R_cpu, delta, offset, lll_size) # num_blocks, block_size**2
 
-            # 3) transfer results back to GPU
-            B_gpu = cp.asarray(B_cpu)
-            # R_gpu = cp.asarray(R_cpu)
-            U_gpu = cp.asarray(U_cpu)
+            #copy to the GPU
+            U_sub_gpu = cp.asarray(U_sub)
 
-        # because we don't copy R here don't check debug
-        # if debug: 
-        #     # if you need to debug, pull just the small block back for checking
-        #     R_block = cp.asnumpy(R_gpu[offset:offset+lll_size, offset:offset+lll_size])
-        #     assert is_lll_reduced(R_block, delta)
+            # Calcul du nombre de blocs
+            num_blocks = int((n - offset + lll_size - 1) // lll_size)
+
+            # Matrice GPU vide où on va copier les sous-blocs
+            U_sub_total = cp.eye(n, dtype=U_sub_gpu.dtype)
+
+            for block_id in range(num_blocks):
+                # position de départ du bloc
+                i = offset + lll_size * block_id
+                # largeur effective du bloc (dernier bloc plus petit si besoin)
+                w = min(n - i, lll_size)
+
+                # on reshape les w*w premières valeurs en (w, w)
+                block_vals = U_sub_gpu[block_id, : w*w].reshape(w, w)
+
+                # on copie ce bloc dans U_sub_total
+                U_sub_total[i : i + w, i : i + w] = block_vals
+
+            # U_sub_total contient maintenant tous les sous-blocs copiés à leur place
+
+            # 3) transfer results back to GPU (just U_sub and apply here U_sub to B and U)
+            U_gpu = U_gpu @ U_sub_total
+            B_gpu = B_gpu @ U_sub_total
+            
 
         # — Step 3: re‐QR
         t3 = perf_counter_ns()

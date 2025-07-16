@@ -10,6 +10,7 @@ cdef extern from "lattice_reduction.cpp" nogil:
     void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
     void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, const int beta)
 
+
 cdef extern from "eigen_matmul.cpp" nogil:
     void eigen_init(int num_cores)
 
@@ -22,3 +23,5 @@ cdef extern from "eigen_matmul.cpp" nogil:
 	# a = a * b
     void eigen_right_matmul(ZZ *a, const ZZ *b, int n, int m)
     void eigen_right_matmul(ZZ *a, const ZZ *b, int n, int m, int stride_a)
+
+
