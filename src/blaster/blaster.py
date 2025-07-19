@@ -8,12 +8,14 @@ from time import perf_counter_ns
 
 import numpy as np
 import cupy as cp
-from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
 # Local imports
 from blaster_core import \
     set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+
+from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+
 from stats import get_profile, rhf, slope, potential, get_profile_gpu
 from lattice_io import write_lattice
 
@@ -124,10 +126,12 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     # 3) pick your GPU‐enabled block‐LLL routine # to do
     #red_fn = partial(block_deep_lll, depth) if depth else block_lll
     red_fn = partial(block_deep_lll_gpu, depth) if depth else block_lll_gpu
-    pinned_host_arr = cp.cuda.alloc_pinned_memory(B_gpu.shape[0]* B_gpu.shape[1]* 8) #memory needed
+
+    n, m = B_gpu.shape
+    pinned_host_arr = cp.cuda.alloc_pinned_memory(n* m * 8) #memory needed
 
     # On wrappe ça en numpy pour manipuler :
-    R_cpu = np.frombuffer(pinned_host_arr, dtype=np.float64).reshape(B_gpu.shape)
+    R_cpu = np.frombuffer(pinned_host_arr, dtype=np.float64, count=n*m).reshape((n, m))
 
     logging = False
     while not is_reduced:
@@ -144,7 +148,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             # CPU fallback for testing
             # 1) transfer back to host
             cp.asnumpy(R_gpu, out=R_cpu) # synchro CPU-GPU so this is the time to compute also the other stuff
-
+            
             # 2) run existing CPU version
             U_sub = red_fn(R_cpu, delta, offset, lll_size) # num_blocks, block_size**2
 

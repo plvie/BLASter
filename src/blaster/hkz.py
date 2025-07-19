@@ -29,7 +29,7 @@ import pickle as pickler
 import logging
 from collections import OrderedDict
 
-from g6k.algorithms.workout import workout, pump
+from g6k.algorithms.pump import pump
 from g6k.siever import Siever
 from g6k.siever_params import SieverParams
 import six
@@ -62,7 +62,7 @@ def hkz_kernel(A,n, beta, pump_and_jump):
             raise TypeError(f"Unsupported NumPy dtype {A.dtype}")
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
-    params = {"pump__down_sieve": True, "workout__dim4free_min":0,"workout__dim4free_dec":1}
+    # params = {"pump__down_sieve": True, "workout__dim4free_min":0,"workout__dim4free_dec":1}
     kwds_ = OrderedDict()
     for k, v in params.items():
         k_ = k.replace("__", "/")
@@ -76,7 +76,7 @@ def hkz_kernel(A,n, beta, pump_and_jump):
     # saturation_ratio  = 0.8)
     )
     pump_params = pop_prefixed_params("pump", params)
-    workout_params = pop_prefixed_params("workout", params)
+    # workout_params = pop_prefixed_params("workout", params)
 
     # gso = GSO.Mat(IM, U = IntegerMatrix.identity(IM.nrows), UinvT = IntegerMatrix.identity(IM.nrows)
     # , float_type="long double", flags=GSO.ROW_EXPO)
@@ -100,11 +100,11 @@ def hkz_kernel(A,n, beta, pump_and_jump):
     U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
 
     # Cleanup before return just to be extra safe about memory usage
-    del IM, g6k, B, B_np, A_np, params, pump_params, workout_params, tracer
+    # del IM, g6k, B, B_np, A_np, params, pump_params, tracer
 
-    gc.collect()
-    cp.get_default_memory_pool().free_all_blocks()
-    cp.get_default_pinned_memory_pool().free_all_blocks()
+    # gc.collect()
+    # cp.get_default_memory_pool().free_all_blocks()
+    # cp.get_default_pinned_memory_pool().free_all_blocks()
     # assert np.allclose(np.dot(A_np.T, U), B_np.T)
     return U
 

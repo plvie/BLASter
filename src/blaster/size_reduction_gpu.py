@@ -107,7 +107,58 @@ def __reduction_ranges(n):
 import cupy as cp
 
 __reduction_cache = {}
-_rows_cache = {}
+_rows_h_cache = {}
+_cols_w_cache = {}
+
+def dynamic_batches(ranges, N, min_batch=8):
+    """
+    Découpe `ranges` en batches dynamiques:
+    - s'arrête et démarre un nouveau batch dès qu'un triplet a k == N
+    - étend le batch tant que la largeur (k-j) n'excède pas la largeur max actuelle
+      ou que le batch n'a pas atteint min_batch
+    - autorise un batch plus petit que min_batch uniquement si la coupure est due à k == N
+
+    Retourne une liste de listes :
+      [batch_size, current_ranges, max_h, max_w]
+    où max_h = max(j - i) et max_w = max(k - j) sur le batch.
+    """
+    m = len(ranges)
+    offset = 0
+    batches = []
+
+    while offset < m:
+        # init du batch
+        i0, j0, k0 = ranges[offset]
+        max_w = k0 - j0
+        max_h = j0 - i0
+        batch_size = 1
+        hit_N = False
+
+        # essayer d'étendre le batch
+        while offset + batch_size < m:
+            i1, j1, k1 = ranges[offset + batch_size]
+            w1 = k1 - j1
+            h1 = j1 - i1
+
+            # coupure forcée sur k == N
+            if k1 == N:
+                hit_N = True
+                break
+
+            # si ca change, on stoppe
+            if w1 != max_w or h1 != max_h:
+                break
+            batch_size += 1
+
+        # extraction du batch
+        current_ranges = ranges[offset:offset + batch_size]
+        batches.append([batch_size, current_ranges, max_h, max_w])
+
+        # avancer
+        offset += batch_size
+
+    return batches
+
 
 def seysen_reduce_gpu(R_gpu, U_gpu):
     """
@@ -119,14 +170,22 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     """
     n = R_gpu.shape[0]
 
+    #param ici
+    min_batch = 8
+
     # Use cached ranges if available
     if n not in __reduction_cache:
+
         base_cases, ranges = __reduction_ranges(n)
+
         i_arr = cp.array(base_cases, dtype=cp.int32)
+        batches = dynamic_batches(ranges,n)
+
         ranges_np_full = cp.asarray(ranges, dtype=cp.int32)
-        __reduction_cache[n] = (base_cases, ranges, i_arr, ranges_np_full)
+
+        __reduction_cache[n] = (base_cases, ranges, i_arr, ranges_np_full, batches)
     else:
-        base_cases, ranges, i_arr, ranges_np_full = __reduction_cache[n]
+        base_cases, ranges, i_arr, ranges_np_full, batches = __reduction_cache[n]
 
     if base_cases:
         # gather diagonals and super‐diagonals
@@ -141,97 +200,59 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     Uf_gpu = U_gpu.astype(R_gpu.dtype, copy=True)  # float‐work copy
 
     m = len(ranges)
-    #param ici
-    min_batch = 8
-    level = 1
+    level = 0
     offset = 0
-    while True:
-        # calculer la taille du batch courant
-        max_w = 2**level
-        # max_w = max((k - i) for (i, j, k) in current_ranges) # si pas dim = 2**n enft il faudrait batch size, until grow size each time
-        batch_size = m // max_w + 1
 
-        if batch_size <= min_batch:
-            break
+    for batch_size, current_ranges, max_h, max_w  in batches:
+        if batch_size >= min_batch:
+            ranges_np = ranges_np_full[offset : offset + batch_size]
+            i_arr, j_arr, k_arr = ranges_np[:,0], ranges_np[:,1], ranges_np[:,2]
 
-        # on prend les batch_size prochains ranges
-        current_ranges = ranges[offset : offset + batch_size]
+            # 2) préparer caches
+            rows_h = _rows_h_cache.setdefault(max_h, cp.arange(max_h, dtype=cp.int32))
+            cols_w = _cols_w_cache.setdefault(max_w, cp.arange(max_w, dtype=cp.int32))
 
-        # déterminer la largeur max pour le padding
-        # allouer les cubes 3D
-        # R11 = cp.empty((batch_size, max_w, max_w), dtype=R_gpu.dtype)
-        # R12 = cp.empty((batch_size, max_w, max_w), dtype=R_gpu.dtype)
-        # U22 = cp.empty((batch_size, max_w, max_w), dtype=R_gpu.dtype)
+            # 3) construire I, J
+            I = i_arr[:, None] + rows_h[None, :]   # (batch_size, max_h)
+            J = j_arr[:, None] + cols_w[None, :]   # (batch_size, max_w)
+            # 4) gather sous-blocs
+            R11 = R_gpu[I[:,:,None], I[:,None,:]]      # (b, h, h)
+            R12 = R_gpu[I[:,:,None], J[:,None,:]]      # (b, h, w)
+            U22 = Uf_gpu[J[:,:,None], J[:,None,:]]     # (b, w, w)
+            # 5) GEMM + solve -> U12 (b, h, w)
+            S12 = cp.matmul(R12, U22)
+            U12 = cp.rint(-cp.linalg.solve(R11, S12))
 
-        # remplir
+            # 6) mise à jour des sous-blocs
+            Uf_block    = Uf_gpu[I[:,:,None], I[:,None,:]]  # (b, h, h)
+            R12_update  = cp.matmul(R11, U12)               # (b, h, w)
+            Uf12_update = cp.matmul(Uf_block, U12)          # (b, h, w)
 
-        ranges_np = ranges_np_full[offset : offset + batch_size]
-        i_arr, j_arr, k_arr = ranges_np[:, 0], ranges_np[:, 1], ranges_np[:, 2]
+            # 7) préparer grilles pour scatter
+            I_idx = I[:,:,None].repeat(max_w, axis=2)   # (b, h, w)
+            J_idx = J[:,None,:].repeat(max_h, axis=1)   # (b, h, w)
+            assert I_idx.shape == (batch_size, max_h, max_w)
+            assert J_idx.shape == (batch_size, max_h, max_w)
+            I_flat = I_idx.reshape(-1)
+            J_flat = J_idx.reshape(-1)
 
-        batch_size = len(current_ranges)
-        if max_w not in _rows_cache:
-            _rows_cache[max_w] = cp.arange(max_w, dtype=cp.int32)
-        rows = _rows_cache[max_w]
+            # 8) scatter-update
+            R_gpu[I_flat, J_flat]  = (S12 + R12_update).reshape(-1)
+            Uf_gpu[I_flat, J_flat] = Uf12_update.reshape(-1)
+        else:
+            for (i, j, k) in current_ranges:
+                # S12' = R[i:j, j:k] @ U[j:k, j:k]
+                S12p = R_gpu[i:j, j:k].dot(Uf_gpu[j:k, j:k])
 
-        # indices lignes et colonnes pour chaque bloc (N, w)
-        I = i_arr[:, None] + rows[None, :]
-        J = j_arr[:, None] + rows[None, :]
+                # U12' = round(-solve(R[i:j, i:j], S12'))
+                S11 = R_gpu[i:j, i:j]
+                U12p = cp.rint(-solve_triangular(S11, S12p))
+                Uf_gpu[i:j, j:k] = U12p
 
-        # on veut construire R11[idx, :, :] = R_gpu[I[idx], I[idx]]
-        # donc (N, w, w) = gather des lignes puis des colonnes
+                # R[i:j, j:k] = S12' + S11 @ U12'
+                R_gpu[i:j, j:k] = S12p + S11.dot(U12p)
 
-        R11 = R_gpu[I[:, :, None], I[:, None, :]]      # -> (N, w, w)
-
-        # R12[b,i,j] = R_gpu[I[b,i], J[b,j]]
-        R12 = R_gpu[I[:, :, None], J[:, None, :]]      # -> (N, w, w)
-
-        # U22[b,i,j] = Uf_gpu[J[b,i], J[b,j]]
-        U22 = Uf_gpu[J[:, :, None], J[:, None, :]]     # -> (N, w, w)
-
-        # batched GEMM + solve
-        S12 = cp.matmul(R12, U22)
-        U12 = cp.rint(-cp.linalg.solve(R11, S12))
-        # mise à jour
-        U12_batch  = U12[:, :max_w, :max_w]     # (N, max_w, max_w)
-        R11_batch  = R11[:, :max_w, :max_w]     # (N, max_w, max_w)
-
-        # Étape 1 : gather lignes
-        Uf_block_batch = Uf_gpu[I[:, :, None], I[:, None, :]] 
-
-        # 2. Matmul batched
-        R12_batch  = cp.matmul(R11_batch, U12_batch)   # (N, max_w, max_w)
-
-        # 3. Même chose pour Uf_gpu[i:j, j:k]
-        Uf12_batch = cp.matmul(Uf_block_batch[:, :max_w, :max_w], U12_batch)
-
-        # 4. Copy dans les slices finales
-        # Ou tout simplement :
-        I_idx = I[:, :, None].repeat(max_w, axis=2)   # (batch_size, max_w, max_w)
-        J_idx = J[:, None, :].repeat(max_w, axis=1)   # (batch_size, max_w, max_w)
-
-        # Flatten les index pour faire du scatter
-        I_flat = I_idx.reshape(-1)
-        J_flat = J_idx.reshape(-1)
-
-        # On vectorise la maj
-        R_gpu[I_flat, J_flat] = (S12 + R12_batch).reshape(-1)
-        Uf_gpu[I_flat, J_flat] = Uf12_batch.reshape(-1)
-
-        # avancer l'offset et augmenter le niveau
-        offset += batch_size
-        level += 1
-    for (i, j, k) in ranges[offset:]:
-        # S12' = R[i:j, j:k] @ U[j:k, j:k]
-        S12p = R_gpu[i:j, j:k].dot(Uf_gpu[j:k, j:k])
-
-        # U12' = round(-solve(R[i:j, i:j], S12'))
-        S11 = R_gpu[i:j, i:j]
-        U12p = cp.rint(-solve_triangular(S11, S12p))
-        Uf_gpu[i:j, j:k] = U12p
-
-        # R[i:j, j:k] = S12' + S11 @ U12'
-        R_gpu[i:j, j:k] = S12p + S11.dot(U12p)
-
-        # U[i:j, j:k] = U[i:j, i:j] @ U12'
-        Uf_gpu[i:j, j:k] = Uf_gpu[i:j, i:j].dot(U12p)
+                # U[i:j, j:k] = U[i:j, i:j] @ U12'
+                Uf_gpu[i:j, j:k] = Uf_gpu[i:j, i:j].dot(U12p)
+        offset+= batch_size
     U_gpu[:, :] = cp.rint(Uf_gpu).astype(U_gpu.dtype)

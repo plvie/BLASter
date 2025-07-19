@@ -2,7 +2,11 @@
 #include <thrust/fill.h>
 #include <thrust/execution_policy.h>
 #include <cmath>
+/*
 
+This file is not intended to be use at this point is WIP
+
+*/
 // floating-point type
 typedef double FT;
 // integer type
