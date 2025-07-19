@@ -195,8 +195,6 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
         U12_batch  = U12[:, :max_w, :max_w]     # (N, max_w, max_w)
         R11_batch  = R11[:, :max_w, :max_w]     # (N, max_w, max_w)
 
-        N = len(current_ranges)
-
         # Étape 1 : gather lignes
         Uf_block_batch = Uf_gpu[I[:, :, None], I[:, None, :]] 
 
@@ -207,9 +205,17 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
         Uf12_batch = cp.matmul(Uf_block_batch[:, :max_w, :max_w], U12_batch)
 
         # 4. Copy dans les slices finales
-        for idx, (i, j, k) in enumerate(current_ranges):
-            R_gpu[i:j, j:k] = S12[idx] + R12_batch[idx]
-            Uf_gpu[i:j, j:k] = Uf12_batch[idx]
+        # Ou tout simplement :
+        I_idx = I[:, :, None].repeat(max_w, axis=2)   # (batch_size, max_w, max_w)
+        J_idx = J[:, None, :].repeat(max_w, axis=1)   # (batch_size, max_w, max_w)
+
+        # Flatten les index pour faire du scatter
+        I_flat = I_idx.reshape(-1)
+        J_flat = J_idx.reshape(-1)
+
+        # On vectorise la maj
+        R_gpu[I_flat, J_flat] = (S12 + R12_batch).reshape(-1)
+        Uf_gpu[I_flat, J_flat] = Uf12_batch.reshape(-1)
 
         # avancer l'offset et augmenter le niveau
         offset += batch_size

@@ -310,6 +310,39 @@ def block_deep_lll_gpu(int depth,
     # Step 2: Update U and B_red locally by multiplying with U_sub[block_id].
     return U_sub
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def block_bkz_gpu(int beta,
+        cnp.ndarray[FT, ndim=2] R,
+        FT delta, int offset, int block_size) -> cnp.ndarray[ZZ]:
+    global debug_size_reduction
+
+    # Variables
+    cdef:
+        Py_ssize_t n = R.shape[0]
+        int i, j, w, num_blocks = int((n - offset + block_size - 1) / block_size), block_id
+        FT[:, ::1] R_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_FT)
+        ZZ[:, ::1] U_sub = np.empty(shape=(num_blocks, block_size**2), dtype=NP_ZZ)
+
+    sig_on()
+    for block_id in prange(num_blocks, nogil=True):
+        i = offset + block_size * block_id
+        w = min(n - i, block_size)
+
+        for j in range(w):
+            memcpy(&R_sub[block_id, j * w], &R[i + j, i], w * sizeof(FT));
+
+        # Step 1: run BKZ on block [i, i + w).
+        bkz_reduce(w, &R_sub[block_id, 0], &U_sub[block_id, 0], delta, beta)
+
+        if debug_size_reduction != 0:
+            for j in range(w):
+                memcpy(&R[i + j, i], &R_sub[block_id, j * w], w * sizeof(FT));
+
+    sig_off()
+
+    return U_sub
+
 #
 # Integer (int64) Matrix Multiplication using Eigen, which internally uses OpenMP.
 #

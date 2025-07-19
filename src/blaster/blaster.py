@@ -12,7 +12,7 @@ from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
 # Local imports
 from blaster_core import \
-    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu
+    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 from stats import get_profile, rhf, slope, potential, get_profile_gpu
 from lattice_io import write_lattice
@@ -78,7 +78,6 @@ def lll_reduce(B, U, U_seysen, lll_size, delta, depth,
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
             (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
-
         # Step 5: Update B and U with transformation from Seysen's reduction.
         t5 = perf_counter_ns()
         ZZ_right_matmul(U, U_seysen)
@@ -125,13 +124,16 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     # 3) pick your GPU‐enabled block‐LLL routine # to do
     #red_fn = partial(block_deep_lll, depth) if depth else block_lll
     red_fn = partial(block_deep_lll_gpu, depth) if depth else block_lll_gpu
+    pinned_host_arr = cp.cuda.alloc_pinned_memory(B_gpu.shape[0]* B_gpu.shape[1]* 8) #memory needed
+
+    # On wrappe ça en numpy pour manipuler :
+    R_cpu = np.frombuffer(pinned_host_arr, dtype=np.float64).reshape(B_gpu.shape)
 
     logging = False
     while not is_reduced:
         # — Step 1: QR on GPU
         t1 = perf_counter_ns()
         R_gpu = cp.linalg.qr(B_gpu, mode='r')
-
         # — Step 2: small‐block LLL on GPU (further work)
         t2 = perf_counter_ns()
         offset = lll_size//2 if offset==0 else 0
@@ -141,7 +143,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         else:
             # CPU fallback for testing
             # 1) transfer back to host
-            R_cpu = cp.asnumpy(R_gpu)
+            cp.asnumpy(R_gpu, out=R_cpu) # synchro CPU-GPU so this is the time to compute also the other stuff
 
             # 2) run existing CPU version
             U_sub = red_fn(R_cpu, delta, offset, lll_size) # num_blocks, block_size**2
@@ -154,7 +156,6 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
             # Matrice GPU vide où on va copier les sous-blocs
             U_sub_total = cp.eye(n, dtype=U_sub_gpu.dtype)
-
             for block_id in range(num_blocks):
                 # position de départ du bloc
                 i = offset + lll_size * block_id
@@ -216,6 +217,104 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         B[:] = cp.asnumpy(B_gpu)
     if not is_U_s_gpu:
         U_seysen[:] = cp.asnumpy(U_s_gpu)
+    
+def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
+               beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
+    
+    # BKZ parameters:
+    n, tours_done, cur_front = B.shape[1], 0, 0
+
+    is_B_gpu = isinstance(B, cp.ndarray)
+    is_U_gpu = isinstance(U, cp.ndarray)
+    is_U_s_gpu = isinstance(U_seysen, cp.ndarray)
+
+    # 2) …and lift any host arrays up to the device once
+    B_gpu        = B        if is_B_gpu   else cp.asarray(B)
+    U_gpu        = U        if is_U_gpu   else cp.asarray(U)
+    U_s_gpu      = U_seysen if is_U_s_gpu else cp.asarray(U_seysen)
+
+    lll_reduce_gpu(B_gpu, U_gpu, U_s_gpu, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+
+    while tours_done < bkz_tours:
+        # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
+        t1 = perf_counter_ns()
+        # R = np.linalg.qr(B, mode='r')
+        R_gpu = cp.linalg.qr(B_gpu, mode='r')
+
+        # Step 2: Call BKZ concurrently on small blocks!
+        t2 = perf_counter_ns()
+        print("(BKZ) we are at :", cur_front)
+        # norm_before = abs(R[cur_front, cur_front])
+
+        R_cpu = cp.asnumpy(R_gpu)
+        offset = cur_front % beta
+        U_sub = block_bkz_gpu(beta, R_cpu, delta, offset, bkz_size)
+        U_sub_gpu = cp.asarray(U_sub)
+        bs         = bkz_size                # taille de bloc passée à block_bkz_gpu
+        num_blocks = (n - offset + bs - 1) // bs
+
+        # nombre de blocs pleins (taille exactly bs)
+        num_full = (n - offset) // bs
+
+        # 1) crée et initialise U_sub_total hors de toute boucle
+        U_sub_total = cp.eye(n, dtype=U_sub_gpu.dtype)
+
+        # 4) Boucle simple : reshape & copie bloc par bloc
+        for block_id in range(num_blocks):
+            # position du bloc sur la diagonale
+            i = offset + block_id * bs
+            # taille effective du bloc (dernier bloc possiblement plus petit)
+            w = min(n - i, bs)
+            # reshape des w*w premières valeurs de U_sub_gpu[block_id]
+            block_vals = U_sub_gpu[block_id, : w*w].reshape(w, w)
+            # copie sur la diagonale de U_sub_total
+            U_sub_total[i : i + w, i : i + w] = block_vals
+
+        # 4) application
+        U_gpu = U_gpu @ U_sub_total
+        B_gpu = B_gpu @ U_sub_total
+
+        
+
+        # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
+        # Note: it does not destroy the bxb blocks, but everything above these: yes!
+        t3 = perf_counter_ns()
+        R_gpu = cp.linalg.qr(B_gpu, mode='r')
+        # print(abs(R[cur_front, cur_front]), norm_before)
+        # assert abs(R[cur_front, cur_front]) <= norm_before
+        # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
+        t4 = perf_counter_ns()
+        if use_seysen:
+            seysen_reduce_gpu(R_gpu, U_s_gpu)
+        else:
+            raise "Error not Implemented"
+
+        # Step 5: Update B and U with transformation from Seysen's reduction.
+        t5 = perf_counter_ns()
+        U_gpu = U_gpu @ U_s_gpu
+        B_gpu = B_gpu @ U_s_gpu
+
+        t6 = perf_counter_ns()
+
+        tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
+
+        # After time measurement:
+        prof = get_profile_gpu(R_gpu, True).get()
+        note = (f"DeepLLL-{depth}" if depth else "LLL", None)
+        for tracer in tracers.values():
+            tracer(tprof.num_iterations, prof, note)
+        # After printing: update the current location of the 'reduction front'
+        if cur_front + beta > n:
+            # HKZ-reduction was performed at the end, which is the end of a tour.
+            cur_front = 0
+            tours_done += 1
+        else:
+            cur_front += (bkz_size - beta + 1)
+            #cur_front += 1
+
+        # Perform a final LLL reduction at the end
+        lll_reduce_gpu(B_gpu, U_gpu, U_s_gpu, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+               
 
 def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump):
@@ -452,7 +551,7 @@ def reduce(
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen, pump_and_jump)
                 else:
-                    bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                    bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
