@@ -45,7 +45,7 @@ inline void alter_basis(const int N, FT *R, ZZ *U, int i, int j, ZZ number)
  */
 inline void size_reduce(const int N, FT *R, ZZ *U, int i, int j)
 {
-	alter_basis(N, R, U, i, j, llround(-RR(i, j) / RR(i, i)));
+	alter_basis(N, R, U, i, j, llrint(-RR(i, j) / RR(i, i)));
 }
 
 /*
