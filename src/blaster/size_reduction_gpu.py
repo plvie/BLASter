@@ -160,28 +160,6 @@ def dynamic_batches(ranges, N, min_batch=8):
 
     return batches
 
-scatter_kernel = cp.RawKernel(r'''
-extern "C" __global__
-void scatter_write(
-    const int* __restrict__ I,
-    const int* __restrict__ J,
-    const double* __restrict__ V1,
-    const double* __restrict__ V2,
-    double* __restrict__ A1,
-    double* __restrict__ A2,
-    int N,
-    int stride)
-{
-    int idx = blockDim.x * blockIdx.x + threadIdx.x;
-    if (idx >= N) return;
-
-    int i = I[idx];
-    int j = J[idx];
-    A1[i * stride + j] = V1[idx];  // R_gpu[i, j] = S12 + R12_update
-    A2[i * stride + j] = V2[idx];  // Uf_gpu[i, j] = Uf12_update
-}
-''', 'scatter_write')
-
 
 def seysen_reduce_gpu(R_gpu, U_gpu):
     """
@@ -191,8 +169,6 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     :param R_gpu: cp.ndarray, upper-triangular matrix to reduce (float dtype)
     :param U_gpu: cp.ndarray, integer transformation matrix (upper-triangular with 1s on diag)
     """
-    if not R_gpu.flags.c_contiguous:
-        R_gpu = cp.ascontiguousarray(R_gpu)
     n = R_gpu.shape[0]
 
     #param ici
@@ -265,23 +241,8 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             Uf12_update = cp.matmul(Uf_block, U12)          # (b, h, w)
 
             # 8) scatter-update
-            N = I_flat.size
-            threads = 256
-            blocks = (N + threads - 1) // threads
-            stride = R_gpu.shape[1]
-            scatter_kernel(
-                (blocks,), (threads,),
-                (
-                    I_flat.astype(cp.int32),
-                    J_flat.astype(cp.int32),
-                    (S12 + R12_update).reshape(-1),
-                    Uf12_update.reshape(-1),
-                    R_gpu,
-                    Uf_gpu,
-                    cp.int32(N),
-                    cp.int32(stride)
-                )
-            )
+            R_gpu[I_flat, J_flat]  = (S12 + R12_update).reshape(-1)
+            Uf_gpu[I_flat, J_flat] = Uf12_update.reshape(-1)
         else:
             for (i, j, k) in current_ranges:
                 # S12' = R[i:j, j:k] @ U[j:k, j:k]
