@@ -29,7 +29,7 @@ import pickle as pickler
 import logging
 from collections import OrderedDict
 
-from .g6k.algorithms.pump import pump
+from g6k.algorithms.pump import pump
 from g6k.siever import Siever
 from g6k.siever_params import SieverParams
 import six
@@ -49,7 +49,8 @@ def float64_to_integer_matrix(A):
     scale_factor = (2**62) // (int(max_abs) + 1) - 1
     return (A * scale_factor).astype(np.int64)
 
-def hkz_kernel(A,n, beta, pump_and_jump):
+#build it with -y and don't remove threads params
+def hkz_kernel(A,n, beta, pump_and_jump): # 2 minutes * dim pour b 100
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
@@ -62,19 +63,13 @@ def hkz_kernel(A,n, beta, pump_and_jump):
             raise TypeError(f"Unsupported NumPy dtype {A.dtype}")
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
-    # params = {"pump__down_sieve": True, "workout__dim4free_min":0,"workout__dim4free_dec":1}
+    params = {"pump__down_sieve": True, "threads": 16}
     kwds_ = OrderedDict()
     for k, v in params.items():
         k_ = k.replace("__", "/")
         kwds_[k_] = v
     params = kwds_
     params = SieverParams(**params)
-    params = params.new(#db_size_base   = 1.1,    # ou 1.25, 1.333… selon ce que tu veux
-    # db_size_factor = 3.5,      # augmentation exponentielle
-    # db_limit       = 10_000_000,  # plafonné à 10 M
-    # sample_by_sums = True,
-    # saturation_ratio  = 0.8)
-    )
     pump_params = pop_prefixed_params("pump", params)
     # workout_params = pop_prefixed_params("workout", params)
 

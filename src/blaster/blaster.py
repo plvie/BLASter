@@ -12,14 +12,14 @@ import cupy as cp
 # Local imports
 from blaster_core import \
     set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu
-from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
-from .stats import get_profile, rhf, slope, potential, get_profile_gpu
-from .lattice_io import write_lattice
+from stats import get_profile, rhf, slope, potential, get_profile_gpu
+from lattice_io import write_lattice
 
-from .hkz import hkz_kernel
+from hkz import hkz_kernel
 
 # from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
@@ -134,7 +134,9 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
 
     host_flag = cp.cuda.alloc_pinned_memory(1)
-
+    #is like a memset because if not it can don't iterate
+    mv = memoryview(host_flag)
+    mv[0] = 0
     use_gpu_lll = False
 
     is_B_gpu = isinstance(B, cp.ndarray)
@@ -386,6 +388,110 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         lll_reduce_gpu(B_gpu, U_gpu, U_s_gpu, lll_size, delta, depth, tprof, tracers, debug, use_seysen, R_cpu)
                
 
+def get_R_sub_HKZ_gpu(R_gpu: cp.ndarray, cur_front: int, w: int) -> cp.ndarray:
+    return R_gpu[cur_front:cur_front+w, cur_front:cur_front+w].copy()
+
+
+def apply_U_HKZ_gpu(
+    B_red_gpu: cp.ndarray,
+    U_gpu: cp.ndarray,
+    U_sub: cp.ndarray,
+    cur_front: int,
+    w: int
+) -> None:
+    U_sub_gpu = cp.asarray(U_sub)
+    cols = slice(cur_front, cur_front + w)
+    U_gpu[:, cols] = U_gpu[:, cols] @ U_sub_gpu
+    B_red_gpu[:, cols] = B_red_gpu[:, cols] @ U_sub_gpu
+
+def hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
+               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump):
+    
+    # BKZ parameters:
+    n, tours_done, cur_front = B.shape[1], 0, 0
+
+    logging = False
+
+    is_B_gpu = isinstance(B, cp.ndarray)
+    is_U_gpu = isinstance(U, cp.ndarray)
+    is_U_s_gpu = isinstance(U_seysen, cp.ndarray)
+
+    # 2) …and lift any host arrays up to the device once
+    B_gpu        = B        if is_B_gpu   else cp.asarray(B)
+    U_gpu        = U        if is_U_gpu   else cp.asarray(U)
+    U_s_gpu      = U_seysen if is_U_s_gpu else cp.asarray(U_seysen)
+    n, m = B_gpu.shape
+    pinned_host_arr = cp.cuda.alloc_pinned_memory(n* m * 8) #memory needed
+
+        # On wrappe ça en numpy pour manipuler :
+    R_cpu = np.frombuffer(pinned_host_arr, dtype=np.float64, count=n*m).reshape((n, m))
+
+    lll_reduce_gpu(B_gpu, U_gpu, U_s_gpu, lll_size, delta, depth, tprof, tracers, debug, use_seysen, R_cpu)
+    if block_size < beta:
+        block_size = beta
+    while tours_done < bkz_tours:
+        # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
+        t1 = perf_counter_ns()
+        # R = np.linalg.qr(B, mode='r')
+        R_gpu = cp.linalg.qr(B_gpu, mode='r')
+
+        # Step 2: Call BKZ concurrently on small blocks!
+        t2 = perf_counter_ns()
+        print("(HKZ) we are at :", cur_front)
+        # norm_before = abs(R[cur_front, cur_front])
+
+        w = block_size if (n - cur_front) >= block_size else (n - cur_front)
+        R_sub = get_R_sub_HKZ_gpu(R_gpu, cur_front, w)
+        R_sub_cpu = cp.asnumpy(R_sub)
+        print(R_sub_cpu.shape)
+
+        U_sub = hkz_kernel(R_sub_cpu, w, beta, pump_and_jump)
+
+        apply_U_HKZ_gpu(B_gpu, U_gpu, U_sub, cur_front, w)
+
+        
+
+        # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
+        # Note: it does not destroy the bxb blocks, but everything above these: yes!
+        t3 = perf_counter_ns()
+        R_gpu = cp.linalg.qr(B_gpu, mode='r')
+        # print(abs(R[cur_front, cur_front]), norm_before)
+        # assert abs(R[cur_front, cur_front]) <= norm_before
+        # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
+        t4 = perf_counter_ns()
+        if use_seysen:
+            seysen_reduce_gpu(R_gpu, U_s_gpu)
+        else:
+            raise "Error not Implemented"
+
+        # Step 5: Update B and U with transformation from Seysen's reduction.
+        t5 = perf_counter_ns()
+        U_gpu = U_gpu @ U_s_gpu
+        B_gpu = B_gpu @ U_s_gpu
+
+        t6 = perf_counter_ns()
+
+        tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
+
+        # After time measurement:
+        if logging:
+            prof = get_profile_gpu(R_gpu, True).get()
+            note = (f"HKZ-{beta}", (block_size, tours_done, bkz_tours, cur_front))
+            for tracer in tracers.values():
+                tracer(tprof.num_iterations, prof, note)
+        # After printing: update the current location of the 'reduction front'
+        if cur_front + beta > n:
+            # HKZ-reduction was performed at the end, which is the end of a tour.
+            cur_front = 0
+            tours_done += 1
+        else:
+            cur_front += (block_size - beta + 1)
+            #cur_front += 1
+
+        # Perform a final LLL reduction at the end
+        lll_reduce_gpu(B_gpu, U_gpu, U_s_gpu, lll_size, delta, depth, tprof, tracers, debug, use_seysen, R_cpu)
+               
+
 def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump):
     """
@@ -617,7 +723,7 @@ def reduce(
 
 
                     else:
-                        hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                        hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen, pump_and_jump)
                 else:
@@ -644,4 +750,8 @@ def reduce(
         # plt.show()
         ani.save(anim, dpi=120, writer=PillowWriter(fps=5))
     print(tprof, file=stderr)
+    # prof = get_profile(B)
+    # print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
+    #           f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
+    #           f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
     return U, B, tprof

@@ -109,6 +109,7 @@ import cupy as cp
 __reduction_cache = {}
 _rows_h_cache = {}
 _cols_w_cache = {}
+_flat_index_cache = {}
 
 def dynamic_batches(ranges, N, min_batch=8):
     """
@@ -159,6 +160,28 @@ def dynamic_batches(ranges, N, min_batch=8):
 
     return batches
 
+scatter_kernel = cp.RawKernel(r'''
+extern "C" __global__
+void scatter_write(
+    const int* __restrict__ I,
+    const int* __restrict__ J,
+    const double* __restrict__ V1,
+    const double* __restrict__ V2,
+    double* __restrict__ A1,
+    double* __restrict__ A2,
+    int N,
+    int stride)
+{
+    int idx = blockDim.x * blockIdx.x + threadIdx.x;
+    if (idx >= N) return;
+
+    int i = I[idx];
+    int j = J[idx];
+    A1[i * stride + j] = V1[idx];  // R_gpu[i, j] = S12 + R12_update
+    A2[i * stride + j] = V2[idx];  // Uf_gpu[i, j] = Uf12_update
+}
+''', 'scatter_write')
+
 
 def seysen_reduce_gpu(R_gpu, U_gpu):
     """
@@ -168,6 +191,8 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     :param R_gpu: cp.ndarray, upper-triangular matrix to reduce (float dtype)
     :param U_gpu: cp.ndarray, integer transformation matrix (upper-triangular with 1s on diag)
     """
+    if not R_gpu.flags.c_contiguous:
+        R_gpu = cp.ascontiguousarray(R_gpu)
     n = R_gpu.shape[0]
 
     #param ici
@@ -215,6 +240,17 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             # 3) construire I, J
             I = i_arr[:, None] + rows_h[None, :]   # (batch_size, max_h)
             J = j_arr[:, None] + cols_w[None, :]   # (batch_size, max_w)
+
+            if (max_h, max_w) not in _flat_index_cache:
+                I_idx = I[:,:,None].repeat(max_w, axis=2)   # (b, h, w)
+                J_idx = J[:,None,:].repeat(max_h, axis=1)   # (b, h, w)
+                I_flat = I_idx.reshape(-1)
+                J_flat = J_idx.reshape(-1)
+                _flat_index_cache[(max_h, max_w)] = (I_flat, J_flat)
+            else:
+                I_flat, J_flat = _flat_index_cache[(max_h, max_w)]
+
+
             # 4) gather sous-blocs
             R11 = R_gpu[I[:,:,None], I[:,None,:]]      # (b, h, h)
             R12 = R_gpu[I[:,:,None], J[:,None,:]]      # (b, h, w)
@@ -228,17 +264,24 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             R12_update  = cp.matmul(R11, U12)               # (b, h, w)
             Uf12_update = cp.matmul(Uf_block, U12)          # (b, h, w)
 
-            # 7) préparer grilles pour scatter
-            I_idx = I[:,:,None].repeat(max_w, axis=2)   # (b, h, w)
-            J_idx = J[:,None,:].repeat(max_h, axis=1)   # (b, h, w)
-            assert I_idx.shape == (batch_size, max_h, max_w)
-            assert J_idx.shape == (batch_size, max_h, max_w)
-            I_flat = I_idx.reshape(-1)
-            J_flat = J_idx.reshape(-1)
-
             # 8) scatter-update
-            R_gpu[I_flat, J_flat]  = (S12 + R12_update).reshape(-1)
-            Uf_gpu[I_flat, J_flat] = Uf12_update.reshape(-1)
+            N = I_flat.size
+            threads = 256
+            blocks = (N + threads - 1) // threads
+            stride = R_gpu.shape[1]
+            scatter_kernel(
+                (blocks,), (threads,),
+                (
+                    I_flat.astype(cp.int32),
+                    J_flat.astype(cp.int32),
+                    (S12 + R12_update).reshape(-1),
+                    Uf12_update.reshape(-1),
+                    R_gpu,
+                    Uf_gpu,
+                    cp.int32(N),
+                    cp.int32(stride)
+                )
+            )
         else:
             for (i, j, k) in current_ranges:
                 # S12' = R[i:j, j:k] @ U[j:k, j:k]

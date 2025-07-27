@@ -177,37 +177,6 @@ def get_R_sub_HKZ(cnp.ndarray[FT, ndim=2] R, int cur_front, int w):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_G_sub_HKZ(cnp.ndarray[FT, ndim=2] R,
-                  int cur_front,
-                  int w) -> cnp.ndarray[FT]:
-    """
-    R         : matrice R globale en double (n×n)
-    cur_front : indice de départ du bloc (0-based)
-    w         : taille du bloc β
-    retourne   : bloc de Gram G_sub = R_block @ R_block.T (β×β),
-                 avec R_block = R[cur_front:cur_front+w, 0:n]
-    """
-    cdef int n = R.shape[1]
-    # 1) on alloue R_block de taille (β × n)
-    cdef cnp.ndarray[FT, ndim=2] R_block = np.empty((w, n), dtype=np.float64)
-    cdef FT[:, ::1] R_mv      = R
-    cdef FT[:, ::1] Rb_mv     = R_block
-    cdef size_t row_bytes     = n * sizeof(FT)
-    cdef int j
-
-    # 2) copie ligne par ligne TOUTES les colonnes [0..n-1]
-    for j in range(w):
-        memcpy(&Rb_mv[j, 0],
-               &R_mv[cur_front + j, 0],
-               row_bytes)
-
-    # 3) calcul du Gram local : (β×n) × (n×β) → (β×β)
-    cdef cnp.ndarray[FT, ndim=2] G_sub = FT_matmul(R_block, R_block.T)
-
-    return G_sub
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def apply_U_HKZ(cnp.ndarray[ZZ, ndim=2] B_red,
                 cnp.ndarray[ZZ, ndim=2] U,
                 cnp.ndarray[ZZ, ndim=2] U_sub,
