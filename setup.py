@@ -30,23 +30,29 @@ compile_args = [
 # Link with extra arguments
 link_args = [
     openmp_arg,
-    '-O3',                         # optimisation agressive
-    '-march=native',               # generateur d’instructions CPU spécifiques
-    '-mtune=native',               # tuning microarchitectural
-    '-flto=6',                     # Link-Time Optimization multi-threads
-    '-funroll-all-loops',          # déroulage automatique des boucles
-    '-faggressive-loop-optimizations',
-    '-ftree-loop-distribute-patterns',
-    '-fprefetch-loop-arrays',      # pré-fetching mémoire dans les boucles vectorisées
-    '-falign-loops=64',            # aligner les boucles/cache à 64 octets pour SIMD
-    '-fopenmp',                    # parallélisme OpenMP
-    '-fopenmp-simd',               # directives SIMD OpenMP
-    '-fstrict-aliasing',        # assume que les pointeurs ne violent pas les règles d’aliasing C/C++
-    '-fno-exceptions',          # enlève le support des exceptions C++ (gain de taille/perf à l’inlining)
-    '-fno-rtti',                # désactive le RTTI C++ (dynamic_cast, typeid)
-    '-fvisibility=hidden',      # cache toutes les symboles non marqués API (améliore LTO)
+    '-Ofast',
+    '-march=native',
+    '-mtune=native',
+    '-flto=6',
+    '-ffast-math',
+    '-ffp-contract=fast',
+    '-fno-math-errno',
+    '-funroll-loops',
+    '-fpeel-loops',
+    '-ftree-vectorize',
+    '-fivopts',
+    '-fprefetch-loop-arrays',
+    '-falign-loops=64',
+    '-fopenmp',
+    '-fopenmp-simd',
+    '-fstrict-aliasing',
+    '-fno-exceptions',
+    '-fno-rtti',
+    '-fvisibility=hidden',
     '-fno-trapping-math',
-    '-DEIGEN_NO_DEBUG',            # désactive les checks Eigen
+    '-DEIGEN_NO_DEBUG',
+    '-DNDEBUG',
+    '-Wl,--gc-sections'
 ]
 
 
@@ -63,25 +69,31 @@ if '--cython-gdb' in argv:
 else:
     # "Release" arguments
     compile_args += [
-    '-O3',                         # optimisation agressive
-    '-march=native',               # generateur d’instructions CPU spécifiques
-    '-mtune=native',               # tuning microarchitectural
-    '-flto=6',                     # Link-Time Optimization multi-threads
-    '-funroll-all-loops',          # déroulage automatique des boucles
-    '-faggressive-loop-optimizations',
-    '-ftree-loop-distribute-patterns',
-    '-fprefetch-loop-arrays',      # pré-fetching mémoire dans les boucles vectorisées
-    '-falign-loops=64',            # aligner les boucles/cache à 64 octets pour SIMD
-    '-fopenmp',                    # parallélisme OpenMP
-    '-fopenmp-simd',               # directives SIMD OpenMP
-    '-fstrict-aliasing',        # assume que les pointeurs ne violent pas les règles d’aliasing C/C++
-    '-fno-exceptions',          # enlève le support des exceptions C++ (gain de taille/perf à l’inlining)
-    '-fno-rtti',                # désactive le RTTI C++ (dynamic_cast, typeid)
-    '-fvisibility=hidden',      # cache toutes les symboles non marqués API (améliore LTO)
-    '-fno-trapping-math',       #erreur matérielle 
-    '-DEIGEN_NO_DEBUG',            # désactive les checks Eigen
+    '-Ofast',
+    '-march=native',
+    '-mtune=native',
+    '-flto=6',
+    '-ffast-math',
+    '-ffp-contract=fast',
+    '-fno-math-errno',
+    '-funroll-loops',
+    '-fpeel-loops',
+    '-ftree-vectorize',
+    '-fivopts',
+    '-fprefetch-loop-arrays',
+    '-falign-loops=64',
+    '-fopenmp',
+    '-fopenmp-simd',
+    '-fstrict-aliasing',
+    '-fno-exceptions',
+    '-fno-rtti',
+    '-fvisibility=hidden',
+    '-fno-trapping-math',
+    '-DEIGEN_NO_DEBUG',
+    '-DNDEBUG',
+    '-Wl,--icf=all',
+    '-Wl,--gc-sections'
     ]
-
 
 extensions = [Extension(
     name="blaster_core",

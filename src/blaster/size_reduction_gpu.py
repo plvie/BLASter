@@ -109,7 +109,6 @@ import cupy as cp
 __reduction_cache = {}
 _rows_h_cache = {}
 _cols_w_cache = {}
-_flat_index_cache = {}
 
 def dynamic_batches(ranges, N, min_batch=8):
     """
@@ -217,16 +216,6 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             I = i_arr[:, None] + rows_h[None, :]   # (batch_size, max_h)
             J = j_arr[:, None] + cols_w[None, :]   # (batch_size, max_w)
 
-            if (max_h, max_w) not in _flat_index_cache:
-                I_idx = I[:,:,None].repeat(max_w, axis=2)   # (b, h, w)
-                J_idx = J[:,None,:].repeat(max_h, axis=1)   # (b, h, w)
-                I_flat = I_idx.reshape(-1)
-                J_flat = J_idx.reshape(-1)
-                _flat_index_cache[(max_h, max_w)] = (I_flat, J_flat)
-            else:
-                I_flat, J_flat = _flat_index_cache[(max_h, max_w)]
-
-
             # 4) gather sous-blocs
             R11 = R_gpu[I[:,:,None], I[:,None,:]]      # (b, h, h)
             R12 = R_gpu[I[:,:,None], J[:,None,:]]      # (b, h, w)
@@ -239,7 +228,10 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             Uf_block    = Uf_gpu[I[:,:,None], I[:,None,:]]  # (b, h, h)
             R12_update  = cp.matmul(R11, U12)               # (b, h, w)
             Uf12_update = cp.matmul(Uf_block, U12)          # (b, h, w)
-
+            I_idx = I[:,:,None].repeat(max_w, axis=2)   # (b, h, w)
+            J_idx = J[:,None,:].repeat(max_h, axis=1)   # (b, h, w)
+            I_flat = I_idx.reshape(-1)
+            J_flat = J_idx.reshape(-1)
             # 8) scatter-update
             R_gpu[I_flat, J_flat]  = (S12 + R12_update).reshape(-1)
             Uf_gpu[I_flat, J_flat] = Uf12_update.reshape(-1)

@@ -34,7 +34,7 @@ SOFTWARE.
 #define NOCOUNTS 1
 
 template <int N>
-struct lattice_enum_t
+struct alignas(64) lattice_enum_t
 {
 	typedef std::array<FT, N> fltrow_t;
 	typedef std::array<ZZ, N> introw_t;
@@ -42,11 +42,11 @@ struct lattice_enum_t
 	/* inputs */
 	// mu^T corresponds to R (B=Q*R) with multiplicative corrections: muT[i][j] = R[i][j] / R[i][i]
 	// mu^T is the transposed mu in fplll (see also: An LLL Algorithm with Quadratic Complexity, Nguyen, Stehle, 2009.)
-	FT muT[N][N];
+	alignas(64) FT muT[N][N];
 	// risq[i] is ||bi*||^2, or R[i][i]*R[i][i]
-	fltrow_t risq;
+	alignas(64) fltrow_t risq;
 	// the *relative* pruning bounds for the squared norm within the projected sublattices.
-	fltrow_t pr;
+	alignas(64) fltrow_t pr;
 
 	/* internals */
 	FT _A; // overall enumeration bound
@@ -55,10 +55,10 @@ struct lattice_enum_t
 	fltrow_t _sol; // to pass to fplll
 	fltrow_t _c;
 	introw_t _r;
-	std::array<FT, N + 1> _l;
-	std::array<std::uint64_t, N + 1> _counts;
+	alignas(64) std::array<FT, N + 1> _l;
+	alignas(64) std::array<std::uint64_t, N + 1> _counts;
 
-	FT _sigT[N][N];
+	alignas(64) FT _sigT[N][N];
 
 	lattice_enum_t()
 		: muT(), risq(), pr()
@@ -94,7 +94,7 @@ struct lattice_enum_t
 		if (li > _AA[i])
 			return;
 
-		_Dx[i] = _D2x[i] = (((int)(yi >= 0) & 1) << 1) - 1;
+		_Dx[i] = _D2x[i] = 1 | -(yi < 0);
 		_c[i] = ci;
 		_x[i] = xi;
 		_l[i] = li;

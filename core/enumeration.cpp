@@ -33,16 +33,14 @@ FT enumeration(const int N, const FT * __restrict R, const int rowstride, const 
 
     // initialize enumobj.muT
     // assumption: enumobj.muT is all-zero
-    alignas(64) FT* __restrict muTi;
     for (int i = 0; i < N-1; ++i) {
-        muTi = enumobj.muT[i];
-        const FT* __restrict Ri = R+ i*rowstride;
-        const FT  Rii_inv = FT(1.0) / Ri[i];
+        FT* __restrict muTi = enumobj.muT[i];
+        const FT* __restrict Ri = R + i*rowstride;
+        FT Rii_inv = FT(1.0) / Ri[i];
         for (int j = i+1; j < N; ++j) {
-            // muT[i][j] = <bj,bi*> / ||bi*||^2
             muTi[j] = Ri[j] * Rii_inv;
         }
-    }
+}
 
     // initialize enumobj.risq
     const FT* __restrict diag = R;
@@ -74,12 +72,14 @@ FT enumeration(const int N, const FT * __restrict R, const int rowstride, const 
     
     // the virtual basis vectors should never be used
     // if sol is non-zero for these positions then there is an internal error
+    #ifndef NDEBUG
     for (int i = N; i < MAX_ENUM_N; ++i) {
         if (enumobj._sol[i] != 0) {
-            std::cerr << "[enum]: dim=" << N << ": internal error _sol[" << i << "] != 0." << std::endl;
-            return 0.0;
-        }
-	}
+                std::cerr << "[enum]: dim=" << N << ": internal error _sol[" << i << "] != 0." << std::endl;
+                return 0.0;
+            }
+    }
+    #endif
 
     // write enumeration solution to sol
     for (int i = 0; i < N; ++i) {

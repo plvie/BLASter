@@ -11,7 +11,7 @@ import cupy as cp
 
 # Local imports
 from blaster_core import \
-    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, get_G_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu
+    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu
 from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
 from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
@@ -386,10 +386,16 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
         # Perform a final LLL reduction at the end
         lll_reduce_gpu(B_gpu, U_gpu, U_s_gpu, lll_size, delta, depth, tprof, tracers, debug, use_seysen, R_cpu)
+    if not is_U_gpu:
+        U[:] = cp.asnumpy(U_gpu)
+    if not is_B_gpu:
+        B[:] = cp.asnumpy(B_gpu)
+    if not is_U_s_gpu:
+        U_seysen[:] = cp.asnumpy(U_s_gpu)
                
 
 def get_R_sub_HKZ_gpu(R_gpu: cp.ndarray, cur_front: int, w: int) -> cp.ndarray:
-    return R_gpu[cur_front:cur_front+w, cur_front:cur_front+w].copy()
+    return R_gpu[cur_front:cur_front+w, cur_front:cur_front+w]
 
 
 def apply_U_HKZ_gpu(
@@ -490,7 +496,12 @@ def hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
         # Perform a final LLL reduction at the end
         lll_reduce_gpu(B_gpu, U_gpu, U_s_gpu, lll_size, delta, depth, tprof, tracers, debug, use_seysen, R_cpu)
-               
+    if not is_U_gpu:
+        U[:] = cp.asnumpy(U_gpu)
+    if not is_B_gpu:
+        B[:] = cp.asnumpy(B_gpu)
+    if not is_U_s_gpu:
+        U_seysen[:] = cp.asnumpy(U_s_gpu)
 
 def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump):
@@ -704,20 +715,22 @@ def reduce(
             # and repeat this until `beta' = beta`.
             betas = range(40 + ((beta - 40) % bkz_prog), beta + 1, bkz_prog)
 
-            switch_over = 64
+            switch_over = 64 #
 
             # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
             # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
             # before calling the SVP oracle.
+            # moreover we can call DeepLLL-30 before everything so it's will be really more faster
+            # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, 30, tprof, tracers, debug, use_seysen)
             for beta_ in betas:
                 if hkz_use: 
                     if hkz_prog:
                         if beta_ <= switch_over:
-                            bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                            bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen)
                         else:
-                            hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                            hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen, pump_and_jump)
 
