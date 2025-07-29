@@ -29,7 +29,8 @@ import pickle as pickler
 import logging
 from collections import OrderedDict
 
-from g6k.algorithms.pump import pump
+from .g6k.algorithms.pump import pump
+# from .g6k.algorithms.workout import workout
 from g6k.siever import Siever
 from g6k.siever_params import SieverParams
 import six

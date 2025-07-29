@@ -12,14 +12,14 @@ import cupy as cp
 # Local imports
 from blaster_core import \
     set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu
-from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
-from stats import get_profile, rhf, slope, potential, get_profile_gpu
-from lattice_io import write_lattice
+from .stats import get_profile, rhf, slope, potential, get_profile_gpu
+from .lattice_io import write_lattice
 
-from hkz import hkz_kernel
+from .hkz import hkz_kernel
 
 # from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
@@ -411,7 +411,7 @@ def apply_U_HKZ_gpu(
     B_red_gpu[:, cols] = B_red_gpu[:, cols] @ U_sub_gpu
 
 def hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump):
+               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump, svp_call = False):
     
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
@@ -486,7 +486,7 @@ def hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             for tracer in tracers.values():
                 tracer(tprof.num_iterations, prof, note)
         # After printing: update the current location of the 'reduction front'
-        if cur_front + beta > n:
+        if cur_front + beta >= n or svp_call:
             # HKZ-reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
@@ -564,6 +564,71 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
         lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+
+
+# def hybrid_block_reduction(
+#     B_gpu: cp.ndarray,
+#     U_gpu: cp.ndarray,
+#     cur_front: int,
+#     block_size: int,
+#     beta: int,
+#     hkz_kernel,
+#     apply_U_HKZ_gpu,
+#     nearest_plane,
+#     pump_and_jump: bool = False
+# ) -> None:
+#     """
+#     Apply a hybrid BKZ-SVP + Babai nearest-plane reduction on a GPU.
+
+#     Steps:
+#     1. Extract upper-triangular R from B_gpu via QR.
+#     2. Select sub-block of width w = min(block_size, n - cur_front).
+#     3. Run SVP kernel (hkz_kernel) on R_sub to get U_sub (beta-dimensional SVP).
+#     4. Apply U_sub to B_gpu and U_gpu for that block.
+#     5. Build the target vector t in R^n from SVP coefficients.
+#     6. Perform Babai nearest-plane on full R to lift the solution.
+#     7. Update B_gpu and U_gpu with the Babai transformation.
+#     """
+#     n = B_gpu.shape[1]
+#     # 1. QR decomposition of B
+#     R_gpu = cp.linalg.qr(B_gpu, mode='r')
+
+#     # 2. Sub-block selection
+#     w = block_size if (n - cur_front) >= block_size else (n - cur_front)
+#     R_sub = get_R_sub_HKZ_gpu(R_gpu, cur_front, w)         # GPU view
+#     R_sub_cpu = cp.asnumpy(R_sub)                          # to CPU for SVP kernel
+
+#     # 3. SVP on sub-block
+#     U_sub = hkz_kernel(R_sub_cpu, w, beta, pump_and_jump)
+
+#     # 4. Apply SVP transformation
+#     apply_U_HKZ_gpu(B_gpu, U_gpu, U_sub, cur_front, w)
+
+#     # 5. Build target vector t in CPU
+#     # Extract SVP coefficients from U_sub: assume U_sub is w x w transformation
+#     coeffs_eta = U_sub[:, 0][:beta]                       # first column gives combination
+#     c = np.zeros(n, dtype=int)
+#     c[cur_front:cur_front + beta] = coeffs_eta
+#     B_cpu = cp.asnumpy(B_gpu)
+#     t = B_cpu @ c
+
+#     # 6. Nearest-plane on full R
+#     # Prepare T and U_babai
+#     T = t.reshape(n, 1)
+#     U_babai = np.zeros((n, 1), dtype=int)
+#     R_cpu = cp.asnumpy(R_gpu)
+#     nearest_plane(R_cpu, T, U_babai)
+
+#     # 7. Update GPU bases with Babai transform
+#     # Transfer U_babai to GPU as full transformation matrix
+#     # Here we treat U_babai as the extra columns on identity
+#     U_full = np.eye(n, dtype=int)
+#     U_full[:, 0] = U_babai.flatten()
+#     U_full_gpu = cp.asarray(U_full)
+#     # Apply to global U and B
+#     U_gpu[...] = U_gpu @ U_full_gpu
+#     B_gpu[...] = B_gpu @ U_full_gpu
+
 
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
@@ -699,6 +764,7 @@ def reduce(
     beta = kwds.get("beta")
     hkz_use = kwds.get("hkz_use")
     hkz_prog = kwds.get("hkz_prog")
+    svp_call = kwds.get("svp_call")
     pump_and_jump = kwds.get("pump_and_jump")
     time_start = perf_counter_ns()
     try:
@@ -740,7 +806,12 @@ def reduce(
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen, pump_and_jump)
                 else:
-                    bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, 4, beta_,
+                    if svp_call:
+                        hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, 4, beta_,
+                           bkz_tours if beta_ == beta else 1, bkz_size,
+                           tprof, tracers, debug, use_seysen, pump_and_jump, svp_call)
+                    else:
+                        bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, 4, beta_,
                            bkz_tours if beta_ == beta else 1, bkz_size,
                            tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
