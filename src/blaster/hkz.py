@@ -29,8 +29,7 @@ import pickle as pickler
 import logging
 from collections import OrderedDict
 
-from .g6k.algorithms.pump import pump
-# from .g6k.algorithms.workout import workout
+from g6k.algorithms.pump import pump
 from g6k.siever import Siever
 from g6k.siever_params import SieverParams
 import six
@@ -85,7 +84,7 @@ def hkz_kernel(A,n, beta, pump_and_jump): # 2 minutes * dim pour b 100
     else:
         jump = 1
         if n <= beta:
-            pump(g6k, tracer, 0, n, 0, **pump_params)
+            pump(g6k, tracer, 0, n, 0, **pump_params, verbose=False)
         else:
             for i in range(0,n-beta+1, jump):
                 pump(g6k, tracer, i, beta, 0, **pump_params)
