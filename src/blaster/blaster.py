@@ -18,6 +18,7 @@ from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
 from .stats import get_profile, rhf, slope, potential, get_profile_gpu
 from .lattice_io import write_lattice
+from fpylll.util import gaussian_heuristic
 
 from .hkz import hkz_kernel
 
@@ -422,19 +423,6 @@ def apply_U_HKZ_gpu(B_red_gpu, U_gpu, U_sub, cur_front, w):
     U_gpu   [:, i:j] = U_res
     B_red_gpu[:, i:j] = B_res
 
-
-def gaussian_heuristic(gs_lengths):
-    """
-    gs_lengths : liste ou itérable des longueurs de Gram–Schmidt (r_i)
-    retourne : estimation GH = (det * Gamma(n/2+1) / pi^(n/2))^(1/n)
-    """
-    n = len(gs_lengths)
-    # produit des r_i pour obtenir det(L)
-    det = math.prod(gs_lengths)
-    # volume de la boule unitaire (inversé) via Gamma
-    vol_factor = math.gamma(n/2 + 1) / (math.pi ** (n/2))
-    return (det * vol_factor) ** (1.0 / n)
-
 #need rework output of this is completely wrong
 # def hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 #                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump, svp_call = False, target_norm=None, goal_margin=1.5):
@@ -561,13 +549,9 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     # BKZ parameters:
     n, tours_done, cur_front = B.shape[1], 0, 0
     if svp_call:
-        cur_front = n - beta    # from Erdem Alkim, Léo Ducas, Thomas Pöppelmann, and Peter Schwabe. Post-quantum key exchange a new hope
-        #and from G6K
-        proj_target_norm =  target_norm * (n - beta)/n
-        proj_gh             = gaussian_heuristic([g6k.M.get_r(i, i)
-                             for i in range(llb, d)])
-        proj_target_norm_slack = min(goal_margin * proj_target_norm,
-                             0.98 * proj_gh)
+            if not target_norm:
+                raise("You need to set a target norm")
+            cur_front = n - beta
 
     lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
@@ -584,10 +568,15 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         t2 = perf_counter_ns()
 
         w = block_size if (n - cur_front) >= block_size else (n - cur_front)
-        R_sub = get_R_sub_HKZ(R, cur_front, w)
-        U_sub = hkz_kernel(R_sub, w, beta, pump_and_jump)
-        apply_U_HKZ(B, U, U_sub, cur_front, w)
 
+        if svp_call:
+            Ug6k = hkz_kernel(B, w, beta, pump_and_jump, target_norm)
+            ZZ_right_matmul(U, Ug6k)
+            ZZ_right_matmul(B, Ug6k)
+        else:
+            R_sub = get_R_sub_HKZ(R, cur_front, w)
+            U_sub = hkz_kernel(R_sub, w, beta, pump_and_jump)
+            apply_U_HKZ(B, U, U_sub, cur_front, w)
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
         # assert abs(R[cur_front, cur_front]) <= norm_before
@@ -608,6 +597,9 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # After time measurement:
         prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
         note = (f"HKZ-{beta}", (block_size, tours_done, bkz_tours, cur_front))
+        print('\nProfile sortie de SVP = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
+              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
+              f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
         for tracer in tracers.values():
             tracer(tprof.num_iterations, prof, note)
 
@@ -821,6 +813,7 @@ def reduce(
     hkz_use = kwds.get("hkz_use")
     hkz_prog = kwds.get("hkz_prog")
     svp_call = kwds.get("svp_call")
+    target_norm = kwds.get("target")
     pump_and_jump = kwds.get("pump_and_jump")
     time_start = perf_counter_ns()
     try:
@@ -839,35 +832,36 @@ def reduce(
 
             switch_over = 64
 
-            # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
-            # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
-            # before calling the SVP oracle.
-            # moreover we can call DeepLLL-30 before everything so it's will be really more faster
-            # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, 30, tprof, tracers, debug, use_seysen)
-            for beta_ in betas:
-                if hkz_use: 
-                    if hkz_prog:
-                        if beta_ <= switch_over:
-                            bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
-                           bkz_tours if beta_ == beta else 1, bkz_size,
-                           tprof, tracers, debug, use_seysen)
+            if svp_call:
+                print("svp call")
+                hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta,
+                           bkz_tours, bkz_size,
+                           tprof, tracers, debug, use_seysen, pump_and_jump, svp_call, target_norm)
+            else:
+                # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
+                # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
+                # before calling the SVP oracle.
+                # moreover we can call DeepLLL-30 before everything so it's will be really more faster
+                # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, 30, tprof, tracers, debug, use_seysen)
+                for beta_ in betas:
+                    if hkz_use: 
+                        if hkz_prog:
+                            if beta_ <= switch_over:
+                                bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                            bkz_tours if beta_ == beta else 1, bkz_size,
+                            tprof, tracers, debug, use_seysen)
+                            else:
+                                hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                            bkz_tours if beta_ == beta else 1, bkz_size,
+                            tprof, tracers, debug, use_seysen, pump_and_jump)
                         else:
                             hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
-                           bkz_tours if beta_ == beta else 1, bkz_size,
-                           tprof, tracers, debug, use_seysen, pump_and_jump)
+                            bkz_tours if beta_ == beta else 1, bkz_size,
+                            tprof, tracers, debug, use_seysen, pump_and_jump)
                     else:
-                        hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
-                           bkz_tours if beta_ == beta else 1, bkz_size,
-                           tprof, tracers, debug, use_seysen, pump_and_jump)
-                else:
-                    if svp_call:
-                        hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
-                           bkz_tours if beta_ == beta else 1, bkz_size,
-                           tprof, tracers, debug, use_seysen, pump_and_jump, svp_call)
-                    else:
-                        bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
-                           bkz_tours if beta_ == beta else 1, bkz_size,
-                           tprof, tracers, debug, use_seysen)
+                            bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                            bkz_tours if beta_ == beta else 1, bkz_size,
+                            tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
         pass  # When interrupted, give the partially reduced basis.
     time_end = perf_counter_ns()

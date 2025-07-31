@@ -34,14 +34,57 @@ from g6k.siever import Siever
 from g6k.siever_params import SieverParams
 import six
 from fpylll import IntegerMatrix, GSO
-from fpylll.tools.bkz_stats import dummy_tracer
+from g6k.utils.cli import parse_args, run_all, pop_prefixed_params
+from g6k.utils.stats import SieveTreeTracer, dummy_tracer
+from fpylll.tools.quality import basis_quality
+from fpylll.util import gaussian_heuristic
 
 import numpy as np
+from math import log, sqrt
 
 import gc
 import cupy as cp
+import time
+import sys
 
 #RHF = 1.01267^n, slope = -0.039489, ∥b_1∥ = 631.0 Total time: 199.026s
+
+
+def svp_kernel_solver(B, params,eta, target_norm, pump_params):
+    g6k = Siever(B, params)
+    print("GSO precision: ", g6k.M.float_type)
+    print("target norm", target_norm)
+    dont_trace = True
+    verbose = True
+    if dont_trace:
+        tracer = dummy_tracer
+    else:
+        tracer = SieveTreeTracer(g6k, root_label=("lwe"), start_clocks=True)
+    d = g6k.full_n
+    slope = basis_quality(g6k.M)["/"]
+    print("Intial Slope = %.5f\n" % slope)
+    if g6k.M.get_r(0, 0) <= target_norm:
+        return g6k
+    llb = d - eta - 20
+    # while gaussian_heuristic([g6k.M.get_r(i, i) for i in range(llb, d)]) < target_norm * (d - llb)/(1.*d):
+    #             llb -= 1
+    #             if llb < 0:
+    #                 break
+    # if d-llb > 100:
+    #     print("svp too high ", d-llb)
+    #     return g6k
+    llb = max(0, llb)
+    f = 0
+    if verbose:
+        print("Starting svp pump_{%d, %d, %d}" % (llb, d-llb, f))
+    pump(g6k, tracer, llb, d-llb, f, verbose=verbose, goal_r0=sqrt(target_norm) * (d - llb)/(1.*d), **pump_params)
+    if verbose:
+        slope = basis_quality(g6k.M)["/"]
+        fmt = "\n slope: %.5f, walltime: %.3f sec"
+        print()
+    return g6k
+
+
 
 
 def float64_to_integer_matrix(A):
@@ -50,7 +93,7 @@ def float64_to_integer_matrix(A):
     return (A * scale_factor).astype(np.int64)
 
 #build it with -y and don't remove threads params
-def hkz_kernel(A,n, beta, pump_and_jump): # 2 minutes * dim pour b 100
+def hkz_kernel(A,n, beta, pump_and_jump, target_norm=None):
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
@@ -60,7 +103,7 @@ def hkz_kernel(A,n, beta, pump_and_jump): # 2 minutes * dim pour b 100
             # print(np.nanmax(np.abs(A - float64_to_integer_matrix(A).astype(np.float64)/scale_factor)))
             IM = IntegerMatrix.from_matrix(float64_to_integer_matrix(A).T)
         else:
-            raise TypeError(f"Unsupported NumPy dtype {A.dtype}")
+            IM = IntegerMatrix.from_matrix(A.T)
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
     params = {"pump__down_sieve": True, "threads": 16}
@@ -79,28 +122,35 @@ def hkz_kernel(A,n, beta, pump_and_jump): # 2 minutes * dim pour b 100
     tracer = dummy_tracer
     #other mode possible 
     # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
-    if pump_and_jump:
-        pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
+    if target_norm:
+        print("goal",target_norm)
+        g6k = svp_kernel_solver(IM, params, beta, target_norm, pump_params)
+        #pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True, goal_r0=proj_target_norm)
     else:
-        jump = 1
-        if n <= beta:
-            pump(g6k, tracer, 0, n, 0, **pump_params, verbose=False)
+        if pump_and_jump:
+            pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
         else:
-            for i in range(0,n-beta+1, jump):
-                pump(g6k, tracer, i, beta, 0, **pump_params)
+            jump = 1
+            if n <= beta:
+                pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True)
+            else:
+                for i in range(0,n-beta+1, jump):
+                    pump(g6k, tracer, i, beta, 0, **pump_params, verbose=True)
     B = g6k.M.B
-    A_np = (float64_to_integer_matrix(A).T)
+    if A.dtype == np.float64:
+        A_np = float64_to_integer_matrix(A).T
+    else:
+        A_np = A.T
     B_np = np.empty((B.nrows, B.ncols), dtype=int)
     B.to_matrix(B_np)
-    U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
 
+    U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
     # Cleanup before return just to be extra safe about memory usage
     # del IM, g6k, B, B_np, A_np, params, pump_params, tracer
-
     # gc.collect()
     # cp.get_default_memory_pool().free_all_blocks()
     # cp.get_default_pinned_memory_pool().free_all_blocks()
-    # assert np.allclose(np.dot(A_np.T, U), B_np.T)
+    assert np.allclose(np.dot(A_np.T, U), B_np.T)
     return U
 
 def pop_prefixed_params(prefix, params):

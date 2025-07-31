@@ -182,7 +182,7 @@ def apply_U_HKZ(cnp.ndarray[ZZ, ndim=2] B_red,
                 cnp.ndarray[ZZ, ndim=2] U_sub,
                 int cur_front, int w):
     """
-    Applique U_sub (w×w) aux colonnes [cur_front:cur_front+w) de U et B_red,
+    Applique U_sub (wxw) aux colonnes [cur_front:cur_front+w) de U et B_red,
     en-place, via ZZ_right_matmul_strided.
     """
     cdef int i = cur_front
