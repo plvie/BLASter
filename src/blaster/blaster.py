@@ -597,9 +597,6 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # After time measurement:
         prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
         note = (f"HKZ-{beta}", (block_size, tours_done, bkz_tours, cur_front))
-        print('\nProfile sortie de SVP = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
-              f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
         for tracer in tracers.values():
             tracer(tprof.num_iterations, prof, note)
 

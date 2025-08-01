@@ -30,6 +30,7 @@ import logging
 from collections import OrderedDict
 
 from g6k.algorithms.pump import pump
+from g6k.algorithms.workout import workout
 from g6k.siever import Siever
 from g6k.siever_params import SieverParams
 import six
@@ -50,40 +51,57 @@ import sys
 #RHF = 1.01267^n, slope = -0.039489, ∥b_1∥ = 631.0 Total time: 199.026s
 
 
-def svp_kernel_solver(B, params,eta, target_norm, pump_params):
-    g6k = Siever(B, params)
-    print("GSO precision: ", g6k.M.float_type)
-    print("target norm", target_norm)
-    dont_trace = True
-    verbose = True
-    if dont_trace:
-        tracer = dummy_tracer
-    else:
-        tracer = SieveTreeTracer(g6k, root_label=("lwe"), start_clocks=True)
-    d = g6k.full_n
-    slope = basis_quality(g6k.M)["/"]
-    print("Intial Slope = %.5f\n" % slope)
-    if g6k.M.get_r(0, 0) <= target_norm:
-        return g6k
-    llb = d - eta - 20
-    # while gaussian_heuristic([g6k.M.get_r(i, i) for i in range(llb, d)]) < target_norm * (d - llb)/(1.*d):
-    #             llb -= 1
-    #             if llb < 0:
-    #                 break
-    # if d-llb > 100:
-    #     print("svp too high ", d-llb)
-    #     return g6k
-    llb = max(0, llb)
-    f = 0
-    if verbose:
-        print("Starting svp pump_{%d, %d, %d}" % (llb, d-llb, f))
-    pump(g6k, tracer, llb, d-llb, f, verbose=verbose, goal_r0=sqrt(target_norm) * (d - llb)/(1.*d), **pump_params)
-    if verbose:
-        slope = basis_quality(g6k.M)["/"]
-        fmt = "\n slope: %.5f, walltime: %.3f sec"
-        print()
-    return g6k
+def svp_kernel_solver(B, params, eta, target_norm, workout_params, pump_params=None):
+    """
+    Solve SVP using workout with saturation control up to target_norm^2.
 
+    Args:
+        B: basis matrix
+        params: dict of G6K parameters
+        eta: dimension reduction parameter for sub-block
+        target_norm: squared norm target to reach
+        workout_params: dict of workout-specific parameters
+        pump_params: dict of pump-specific parameters (optional fallback)
+    Returns:
+        g6k Siever instance with reduced basis reaching target_norm
+    """
+    # Initialize Siever
+    g6k = Siever(B, params)
+    print("GSO precision:", g6k.M.float_type)
+    print("Target norm (carré) =", target_norm)
+
+    # Setup tracer (dummy by default)
+    tracer = dummy_tracer
+    d = g6k.full_n
+
+    #because i remove all lll on the whole basis so it's need to precompute
+    g6k.update_gso(0,d)
+
+    # Quick check: if already short enough
+    if g6k.M.get_r(0, 0) <= target_norm:
+        print("Already satisfied before workout.")
+        return g6k
+    llb = max(0, d - eta)
+    while gaussian_heuristic([g6k.M.get_r(i, i) for i in range(llb, d)]) < target_norm * (d - llb)/(1.*d): # noqa
+        llb -= 1
+        if llb < 0:
+            break
+    block_len = d - llb
+    print(f"Starting workout on block [ {llb}, {d} ) of length {block_len}")
+
+    # Run workout until target reached
+    flast = workout(
+        g6k,
+        tracer,
+        llb,
+        block_len,
+        goal_r0 = (target_norm) * (block_len)/(1.*d),  # goal_r0 is target squared norm projected into the block
+        pump_params = pump_params or {},
+        **workout_params,
+        verbose=True
+    )
+
+    return g6k
 
 
 
@@ -114,7 +132,7 @@ def hkz_kernel(A,n, beta, pump_and_jump, target_norm=None):
     params = kwds_
     params = SieverParams(**params)
     pump_params = pop_prefixed_params("pump", params)
-    # workout_params = pop_prefixed_params("workout", params)
+    workout_params = pop_prefixed_params("workout", params)
 
     # gso = GSO.Mat(IM, U = IntegerMatrix.identity(IM.nrows), UinvT = IntegerMatrix.identity(IM.nrows)
     # , float_type="long double", flags=GSO.ROW_EXPO)
@@ -124,7 +142,7 @@ def hkz_kernel(A,n, beta, pump_and_jump, target_norm=None):
     # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
     if target_norm:
         print("goal",target_norm)
-        g6k = svp_kernel_solver(IM, params, beta, target_norm, pump_params)
+        g6k = svp_kernel_solver(IM, params, beta, target_norm,workout_params, pump_params)
         #pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True, goal_r0=proj_target_norm)
     else:
         if pump_and_jump:
