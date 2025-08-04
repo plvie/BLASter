@@ -179,7 +179,7 @@ def block_bkz(int beta,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_R_sub_HKZ(cnp.ndarray[FT, ndim=2] R, int cur_front, int w):
+def get_R_sub_G6K(cnp.ndarray[FT, ndim=2] R, int cur_front, int w):
     cdef int n = R.shape[0]
     cdef cnp.ndarray[FT, ndim=2] R_sub = np.empty((w, w), dtype=np.float64)
     cdef FT[:, ::1] R_mv = R
@@ -192,7 +192,7 @@ def get_R_sub_HKZ(cnp.ndarray[FT, ndim=2] R, int cur_front, int w):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def apply_U_HKZ(cnp.ndarray[ZZ, ndim=2] B_red,
+def apply_U_G6K(cnp.ndarray[ZZ, ndim=2] B_red,
                 cnp.ndarray[ZZ, ndim=2] U,
                 cnp.ndarray[ZZ, ndim=2] U_sub,
                 int cur_front, int w):

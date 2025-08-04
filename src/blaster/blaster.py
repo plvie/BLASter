@@ -11,25 +11,25 @@ import cupy as cp
 
 # Local imports
 from blaster_core import \
-    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu, solve_last_block_svp
-from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_G6K, apply_U_G6K, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu, solve_last_block_svp
+# from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+# from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
-from .stats import get_profile, rhf, slope, potential, get_profile_gpu
-from .lattice_io import write_lattice
-from fpylll.util import gaussian_heuristic
+# from .stats import get_profile, rhf, slope, potential, get_profile_gpu
+# from .lattice_io import write_lattice
+# from fpylll.util import gaussian_heuristic
 
-from .hkz import hkz_kernel
+# from .blaster_g6k_bridge import g6k_kernel
 
-# from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-# from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
-# from stats import get_profile, rhf, slope, potential, get_profile_gpu
-# from lattice_io import write_lattice
+from stats import get_profile, rhf, slope, potential, get_profile_gpu
+from lattice_io import write_lattice
 
-# from hkz import hkz_kernel
+from blaster_g6k_bridge import g6k_kernel
 
 class TimeProfile:
     """
@@ -378,7 +378,7 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
                 tracer(tprof.num_iterations, prof, note)
         # After printing: update the current location of the 'reduction front'
         if cur_front + beta > n:
-            # HKZ-reduction was performed at the end, which is the end of a tour.
+            # reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
         else:
@@ -395,33 +395,33 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         U_seysen[:] = cp.asnumpy(U_s_gpu)
                
 
-def get_R_sub_HKZ_gpu(R_gpu: cp.ndarray, cur_front: int, w: int) -> cp.ndarray:
-    return R_gpu[cur_front:cur_front+w, cur_front:cur_front+w].copy()
+# def get_R_sub_HKZ_gpu(R_gpu: cp.ndarray, cur_front: int, w: int) -> cp.ndarray:
+#     return R_gpu[cur_front:cur_front+w, cur_front:cur_front+w].copy()
 
 
-def apply_U_HKZ_gpu(B_red_gpu, U_gpu, U_sub, cur_front, w):
-    # 1) Convertir U_sub CPU → GPU, et forcer même dtype que U_gpu
-    U_sub_gpu = cp.asarray(U_sub, dtype=U_gpu.dtype)
+# def apply_U_HKZ_gpu(B_red_gpu, U_gpu, U_sub, cur_front, w):
+#     # 1) Convertir U_sub CPU → GPU, et forcer même dtype que U_gpu
+#     U_sub_gpu = cp.asarray(U_sub, dtype=U_gpu.dtype)
 
-    # 2) Bornes du bloc
-    i = cur_front
-    j = cur_front + w
+#     # 2) Bornes du bloc
+#     i = cur_front
+#     j = cur_front + w
 
-    # 3) Vues-slices (potentiellement non‑contigues)
-    U_block_view = U_gpu   [:, i:j]   # shape (n, w)
-    B_block_view = B_red_gpu[:, i:j]  # shape (m, w)
+#     # 3) Vues-slices (potentiellement non‑contigues)
+#     U_block_view = U_gpu   [:, i:j]   # shape (n, w)
+#     B_block_view = B_red_gpu[:, i:j]  # shape (m, w)
 
-    # 4) Copie pour obtenir un buffer C‑contigu
-    U_block = U_block_view.copy()
-    B_block = B_block_view.copy()
+#     # 4) Copie pour obtenir un buffer C‑contigu
+#     U_block = U_block_view.copy()
+#     B_block = B_block_view.copy()
 
-    # 5) Produit matriciel hors‑place
-    U_res = U_block @ U_sub_gpu
-    B_res = B_block @ U_sub_gpu
+#     # 5) Produit matriciel hors‑place
+#     U_res = U_block @ U_sub_gpu
+#     B_res = B_block @ U_sub_gpu
 
-    # 6) Réécriture dans U_gpu et B_red_gpu via slice (qui accepte un array contigu)
-    U_gpu   [:, i:j] = U_res
-    B_red_gpu[:, i:j] = B_res
+#     # 6) Réécriture dans U_gpu et B_red_gpu via slice (qui accepte un array contigu)
+#     U_gpu   [:, i:j] = U_res
+#     B_red_gpu[:, i:j] = B_res
 
 #need rework output of this is completely wrong
 # def hkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
@@ -539,7 +539,7 @@ def apply_U_HKZ_gpu(B_red_gpu, U_gpu, U_sub, cur_front, w):
 #     if not is_U_s_gpu:
 #         U_seysen[:] = cp.asnumpy(U_s_gpu)
 
-def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
+def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump, svp_call=False, target_norm=None, goal_margin=1.5):
     """
     Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
@@ -553,34 +553,35 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             if not target_norm:
                 raise("You need to set a target norm")
             cur_front = n - beta
-
-    # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+    logging = False
+    lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
     if block_size < beta:
         block_size = beta
     while tours_done < bkz_tours:
-        #the best is to call hkz with the same blocksize as beta
-        print("(HKZ) we are at :", cur_front)
+        #the best is to call g6k with the same blocksize as beta
+        print("(BKZ-G6K) we are at :", cur_front)
         
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
-        # Step 2: Call HKZ on small blocks!
+        # Step 2: Call on small blocks
         t2 = perf_counter_ns()
 
         w = block_size if (n - cur_front) >= block_size else (n - cur_front)
 
         if svp_call:
             if sieving:
-                Ug6k = hkz_kernel(B, w, beta, pump_and_jump, target_norm)
+                Ug6k = g6k_kernel(B, w, beta, pump_and_jump, target_norm)
                 ZZ_right_matmul(U, Ug6k)
                 ZZ_right_matmul(B, Ug6k)
             else:
                 print(solve_last_block_svp(R, U, delta, beta))
         else:
-            R_sub = get_R_sub_HKZ(R, cur_front, w)
-            U_sub = hkz_kernel(R_sub, w, beta, pump_and_jump)
-            apply_U_HKZ(B, U, U_sub, cur_front, w)
+            R_sub = get_R_sub_G6K(R, cur_front, w)
+            U_sub = g6k_kernel(R_sub, w, beta, pump_and_jump)
+            apply_U_G6K(B, U, U_sub, cur_front, w)
+
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
         # assert abs(R[cur_front, cur_front]) <= norm_before
@@ -599,23 +600,21 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
 
         # After time measurement:
-        prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
-        note = (f"HKZ-{beta}", (block_size, tours_done, bkz_tours, cur_front))
-        print('\nProfile SVP = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
-              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
-              f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
-        for tracer in tracers.values():
-            tracer(tprof.num_iterations, prof, note)
+        if logging:
+            prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
+            note = (f"BKZ-G6K-{beta}", (block_size, tours_done, bkz_tours, cur_front))
+            for tracer in tracers.values():
+                tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
         if cur_front + (block_size) >= n:
-            # HKZ-reduction was performed at the end, which is the end of a tour.
+            # reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
         else:
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
-        # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 
 # def hybrid_block_reduction(
@@ -764,6 +763,7 @@ def reduce(
         B · U: an LLL-reduced basis,
         tprof: TimeProfile object.
     """
+
     n, tprof = B.shape[1], TimeProfile(use_seysen)
     lll_size = min(max(2, lll_size), n)
 
@@ -814,8 +814,8 @@ def reduce(
     U = np.identity(n, dtype=np.int64)
     U_seysen = np.identity(n, dtype=np.int64)
     beta = kwds.get("beta")
-    hkz_use = kwds.get("hkz_use")
-    hkz_prog = kwds.get("hkz_prog")
+    g6k_use = kwds.get("g6k_use")
+    g6k_prog = kwds.get("g6k_prog")
     svp_call = kwds.get("svp_call")
     target_norm = kwds.get("target")
     pump_and_jump = kwds.get("pump_and_jump")
@@ -838,7 +838,7 @@ def reduce(
 
             if svp_call:
                 print("svp call")
-                hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta,
+                G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta,
                            bkz_tours, bkz_size,
                            tprof, tracers, debug, use_seysen, pump_and_jump, svp_call, target_norm)
             else:
@@ -848,18 +848,18 @@ def reduce(
                 # moreover we can call DeepLLL-30 before everything so it's will be really more faster
                 # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, 30, tprof, tracers, debug, use_seysen)
                 for beta_ in betas:
-                    if hkz_use: 
-                        if hkz_prog:
+                    if g6k_use: 
+                        if g6k_prog:
                             if beta_ <= switch_over:
                                 bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                             bkz_tours if beta_ == beta else 1, bkz_size,
                             tprof, tracers, debug, use_seysen)
                             else:
-                                hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                                G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                             bkz_tours if beta_ == beta else 1, bkz_size,
                             tprof, tracers, debug, use_seysen, pump_and_jump)
                         else:
-                            hkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
+                            G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                             bkz_tours if beta_ == beta else 1, bkz_size,
                             tprof, tracers, debug, use_seysen, pump_and_jump)
                     else:

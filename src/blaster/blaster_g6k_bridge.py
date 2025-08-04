@@ -69,18 +69,15 @@ def svp_kernel_solver(g6k, eta, target_norm, workout_params, pump_params=None):
     tracer = dummy_tracer
     d = g6k.full_n
 
-    #because i remove all lll on the whole basis so it's need to precompute
-    g6k.update_gso(0,d)
-
     # Quick check: if already short enough
-    if g6k.M.get_r(0, 0) <= target_norm:
-        print("Already satisfied before workout.")
-        return g6k
+    # if g6k.M.get_r(0, 0) <= target_norm:
+    #     print("Already satisfied before workout.")
+    #     return g6k
     llb = max(0, d - eta)
-    while gaussian_heuristic([g6k.M.get_r(i, i) for i in range(llb, d)]) < target_norm * (d - llb)/(1.*d): # noqa
-        llb -= 1
-        if llb < 0:
-            break
+    # while gaussian_heuristic([g6k.M.get_r(i, i) for i in range(llb, d)]) < target_norm * (d - llb)/(1.*d): # noqa
+    #     llb -= 1
+    #     if llb < 0:
+    #         break
     print(f"Starting workout on block [ {llb}, {d} ) of length {d - llb} with lifting on whole basis")
 
     f = llb
@@ -94,7 +91,7 @@ def float64_to_integer_matrix(A):
     return (A * scale_factor).astype(np.int64)
 
 #build it with -y and don't remove threads params
-def hkz_kernel(A,n, beta, pump_and_jump, target_norm=None):
+def g6k_kernel(A,n, beta, pump_and_jump, target_norm=None):
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
@@ -131,12 +128,15 @@ def hkz_kernel(A,n, beta, pump_and_jump, target_norm=None):
         if pump_and_jump:
             pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
         else:
-            jump = 1
+            if n <= 100:
+                jump = n-beta+1
+            else:
+                jump = 1
             if n <= beta:
                 pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True)
             else:
                 for i in range(0,n-beta+1, jump):
-                    pump(g6k, tracer, i, beta, 0, **pump_params, verbose=True)
+                    pump(g6k, tracer, i, beta+jump-1, 0, **pump_params, verbose=True) # overshotting the beta to avoid the extra cost of call G6K each time
     B = g6k.M.B
     if A.dtype == np.float64:
         A_np = float64_to_integer_matrix(A).T

@@ -72,10 +72,10 @@ def __main__():
             '--bkz-prog', '-P', type=int,
             help='Progressive blocksize increment for BKZ.')
     parser.add_argument(
-            '--hkz', dest='hkz_use', action='store_true', default=False, help="Activate the HKZ Usage from G6K"
+            '--g6k', dest='g6k_use', action='store_true', default=False, help="Activate the G6K Usage for BKZ"
     )
     parser.add_argument(
-            '--hkz-prog', dest='hkz_prog', action='store_true', default=False, help="Use the BKZ from Blaster before switch to the HKZ from G6K"
+            '--g6k-prog', dest='g6k_prog', action='store_true', default=False, help="Use the BKZ from Blaster before switch to a BKZ with G6K"
     )
     parser.add_argument(
             '--pnj', dest='pump_and_jump', action='store_true', default=False, help="Use the pump and jump tactic instead of the classical one for G6K"
