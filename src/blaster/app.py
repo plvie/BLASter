@@ -78,7 +78,7 @@ def __main__():
             '--g6k-prog', dest='g6k_prog', action='store_true', default=False, help="Use the BKZ from Blaster before switch to a BKZ with G6K"
     )
     parser.add_argument(
-            '--pnj', dest='pump_and_jump', action='store_true', default=False, help="Use the pump and jump tactic instead of the classical one for G6K"
+            '--jump', dest='jump', type=int, default=1, help="Jump (Pump at beta+Jump-1 to reduce the number of calls to dim/j)"
     )
 
 
