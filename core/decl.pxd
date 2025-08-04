@@ -9,6 +9,7 @@ cdef extern from "lattice_reduction.cpp" nogil:
     void lll_reduce(const int N, FT *R, ZZ *U, const FT delta)
     void deeplll_reduce(const int N, FT *R, ZZ *U, const FT delta, const int depth)
     void bkz_reduce(const int N, FT *R, ZZ *U, const FT delta, const int beta)
+    void svp(const int N, FT *R, ZZ *U, const FT delta, int i, int w, ZZ *sol)
 
 
 cdef extern from "eigen_matmul.cpp" nogil:

@@ -10,9 +10,12 @@ from libc.string cimport memcpy
 from openmp cimport omp_set_num_threads, omp_get_num_threads, omp_get_thread_num
 
 from decl cimport FT, ZZ, lll_reduce, deeplll_reduce, bkz_reduce, \
-    eigen_init, eigen_matmul, eigen_left_matmul, eigen_right_matmul
+    eigen_init, eigen_matmul, eigen_left_matmul, eigen_right_matmul, svp
 
+cdef enum:
+    MAX_ENUM_N = 80
 
+    
 cnp.import_array()  # http://docs.cython.org/en/latest/src/tutorial/numpy.html#adding-types
 NP_FT = np.float64  # floating-point type
 NP_ZZ = np.int64  # integer type
@@ -119,6 +122,18 @@ def block_deep_lll(int depth,
         ZZ_right_matmul_strided(U[:, i:i+w], U_sub[block_id, 0:w*w])
         ZZ_right_matmul_strided(B_red[:, i:i+w], U_sub[block_id, 0:w*w])
 
+def solve_last_block_svp(cnp.ndarray[FT, ndim=2] R,
+                         cnp.ndarray[ZZ, ndim=2] U,
+                         FT delta, int eta):
+    cdef int N = R.shape[0]
+    cdef ZZ sol[MAX_ENUM_N]
+    cdef int start = N - eta
+
+    # (2) Lancer SVP sur les derniers eta vecteurs
+    svp(N, &R[0,0], &U[0,0], delta, start, eta, sol)
+
+    # (3) Retourner éventuellement les coefficients trouvés
+    return [ int(sol[i]) for i in range(eta) ]
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

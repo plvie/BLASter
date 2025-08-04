@@ -11,7 +11,7 @@ import cupy as cp
 
 # Local imports
 from blaster_core import \
-    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu
+    set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_HKZ, apply_U_HKZ, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu, solve_last_block_svp
 from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
 from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
@@ -547,13 +547,14 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
     Otherwise BLASter's LLL is run.
     """
     # BKZ parameters:
+    sieving = True
     n, tours_done, cur_front = B.shape[1], 0, 0
     if svp_call:
             if not target_norm:
                 raise("You need to set a target norm")
             cur_front = n - beta
 
-    lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+    # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
     if block_size < beta:
         block_size = beta
@@ -570,9 +571,12 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         w = block_size if (n - cur_front) >= block_size else (n - cur_front)
 
         if svp_call:
-            Ug6k = hkz_kernel(B, w, beta, pump_and_jump, target_norm)
-            ZZ_right_matmul(U, Ug6k)
-            ZZ_right_matmul(B, Ug6k)
+            if sieving:
+                Ug6k = hkz_kernel(B, w, beta, pump_and_jump, target_norm)
+                ZZ_right_matmul(U, Ug6k)
+                ZZ_right_matmul(B, Ug6k)
+            else:
+                print(solve_last_block_svp(R, U, delta, beta))
         else:
             R_sub = get_R_sub_HKZ(R, cur_front, w)
             U_sub = hkz_kernel(R_sub, w, beta, pump_and_jump)
@@ -597,6 +601,9 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         # After time measurement:
         prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
         note = (f"HKZ-{beta}", (block_size, tours_done, bkz_tours, cur_front))
+        print('\nProfile SVP = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
+              f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
+              f'∥b_1∥ = {2.0**prof[0]:.1f}', file=stderr)
         for tracer in tracers.values():
             tracer(tprof.num_iterations, prof, note)
 
@@ -608,7 +615,7 @@ def hkz_reduce(B, U, U_seysen, lll_size, delta, depth,
         else:
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
-        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        # lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 
 # def hybrid_block_reduction(

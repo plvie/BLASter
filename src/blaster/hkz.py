@@ -51,7 +51,7 @@ import sys
 #RHF = 1.01267^n, slope = -0.039489, ∥b_1∥ = 631.0 Total time: 199.026s
 
 
-def svp_kernel_solver(B, params, eta, target_norm, workout_params, pump_params=None):
+def svp_kernel_solver(g6k, eta, target_norm, workout_params, pump_params=None):
     """
     Solve SVP using workout with saturation control up to target_norm^2.
 
@@ -65,11 +65,6 @@ def svp_kernel_solver(B, params, eta, target_norm, workout_params, pump_params=N
     Returns:
         g6k Siever instance with reduced basis reaching target_norm
     """
-    # Initialize Siever
-    g6k = Siever(B, params)
-    print("GSO precision:", g6k.M.float_type)
-    print("Target norm (carré) =", target_norm)
-
     # Setup tracer (dummy by default)
     tracer = dummy_tracer
     d = g6k.full_n
@@ -86,23 +81,11 @@ def svp_kernel_solver(B, params, eta, target_norm, workout_params, pump_params=N
         llb -= 1
         if llb < 0:
             break
-    block_len = d - llb
-    print(f"Starting workout on block [ {llb}, {d} ) of length {block_len}")
+    print(f"Starting workout on block [ {llb}, {d} ) of length {d - llb} with lifting on whole basis")
 
+    f = llb
     # Run workout until target reached
-    flast = workout(
-        g6k,
-        tracer,
-        llb,
-        block_len,
-        goal_r0 = (target_norm) * (block_len)/(1.*d),  # goal_r0 is target squared norm projected into the block
-        pump_params = pump_params or {},
-        **workout_params,
-        verbose=True
-    )
-
-    return g6k
-
+    pump(g6k, tracer, 0, d, f, verbose=True, goal_r0=target_norm**2)
 
 
 def float64_to_integer_matrix(A):
@@ -124,7 +107,7 @@ def hkz_kernel(A,n, beta, pump_and_jump, target_norm=None):
             IM = IntegerMatrix.from_matrix(A.T)
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
-    params = {"pump__down_sieve": True, "threads": 16}
+    params = {"pump__down_sieve": False, "threads": 16}#, "reserved_n": beta, "db_size_factor": 4}
     kwds_ = OrderedDict()
     for k, v in params.items():
         k_ = k.replace("__", "/")
@@ -142,7 +125,7 @@ def hkz_kernel(A,n, beta, pump_and_jump, target_norm=None):
     # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
     if target_norm:
         print("goal",target_norm)
-        g6k = svp_kernel_solver(IM, params, beta, target_norm,workout_params, pump_params)
+        svp_kernel_solver(g6k, beta, target_norm,workout_params, pump_params)
         #pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True, goal_r0=proj_target_norm)
     else:
         if pump_and_jump:
