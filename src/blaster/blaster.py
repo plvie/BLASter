@@ -540,7 +540,7 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 #         U_seysen[:] = cp.asnumpy(U_s_gpu)
 
 def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, pump_and_jump, svp_call=False, target_norm=None, goal_margin=1.5):
+               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, jump=1, svp_call=False, target_norm=None, goal_margin=1.5):
     """
     Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, BLASter's deep-LLL is called in between calls of the SVP oracle.
@@ -572,14 +572,14 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         if svp_call:
             if sieving:
-                Ug6k = g6k_kernel(B, w, beta, pump_and_jump, target_norm)
+                Ug6k = g6k_kernel(B, w, beta, jump, target_norm)
                 ZZ_right_matmul(U, Ug6k)
                 ZZ_right_matmul(B, Ug6k)
             else:
                 print(solve_last_block_svp(R, U, delta, beta))
         else:
             R_sub = get_R_sub_G6K(R, cur_front, w)
-            U_sub = g6k_kernel(R_sub, w, beta, pump_and_jump)
+            U_sub = g6k_kernel(R_sub, w, beta, jump)
             apply_U_G6K(B, U, U_sub, cur_front, w)
 
         t3 = perf_counter_ns()
@@ -818,7 +818,7 @@ def reduce(
     g6k_prog = kwds.get("g6k_prog")
     svp_call = kwds.get("svp_call")
     target_norm = kwds.get("target")
-    pump_and_jump = kwds.get("pump_and_jump")
+    jump = kwds.get("jump")
     time_start = perf_counter_ns()
     try:
         if not beta:
@@ -840,7 +840,7 @@ def reduce(
                 print("svp call")
                 G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta,
                            bkz_tours, bkz_size,
-                           tprof, tracers, debug, use_seysen, pump_and_jump, svp_call, target_norm)
+                           tprof, tracers, debug, use_seysen, jump, svp_call, target_norm)
             else:
                 # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
                 # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
@@ -857,11 +857,11 @@ def reduce(
                             else:
                                 G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                             bkz_tours if beta_ == beta else 1, bkz_size,
-                            tprof, tracers, debug, use_seysen, pump_and_jump)
+                            tprof, tracers, debug, use_seysen, jump)
                         else:
                             G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                             bkz_tours if beta_ == beta else 1, bkz_size,
-                            tprof, tracers, debug, use_seysen, pump_and_jump)
+                            tprof, tracers, debug, use_seysen, jump)
                     else:
                             bkz_reduce(B, U, U_seysen, lll_size, delta, 4, beta_,
                             bkz_tours if beta_ == beta else 1, bkz_size,

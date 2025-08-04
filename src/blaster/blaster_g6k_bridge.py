@@ -91,7 +91,7 @@ def float64_to_integer_matrix(A):
     return (A * scale_factor).astype(np.int64)
 
 #build it with -y and don't remove threads params
-def g6k_kernel(A,n, beta, pump_and_jump, target_norm=None):
+def g6k_kernel(A,n, beta, jump, target_norm=None):
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
@@ -125,18 +125,12 @@ def g6k_kernel(A,n, beta, pump_and_jump, target_norm=None):
         svp_kernel_solver(g6k, beta, target_norm,workout_params, pump_params)
         #pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True, goal_r0=proj_target_norm)
     else:
-        if pump_and_jump:
-            pump_n_jump_bkz_tour(g6k, tracer, beta, pump_params=pump_params)
-        else:
-            if n <= 100:
-                jump = n-beta+1
-            else:
-                jump = 1
-            if n <= beta:
+        if n <= beta:
                 pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True)
-            else:
-                for i in range(0,n-beta+1, jump):
+        else:
+            for i in range(0,n-beta-jump+2, jump):
                     pump(g6k, tracer, i, beta+jump-1, 0, **pump_params, verbose=True) # overshotting the beta to avoid the extra cost of call G6K each time
+                    g6k.lll(0,n)
     B = g6k.M.B
     if A.dtype == np.float64:
         A_np = float64_to_integer_matrix(A).T
