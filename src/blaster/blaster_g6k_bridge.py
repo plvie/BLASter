@@ -51,7 +51,7 @@ import sys
 #RHF = 1.01267^n, slope = -0.039489, ∥b_1∥ = 631.0 Total time: 199.026s
 
 
-def svp_kernel_solver(g6k, eta, target_norm, workout_params, pump_params=None):
+def svp_kernel_solver(g6k, eta, target_norm,kappa, workout_params, pump_params=None):
     """
     Solve SVP using workout with saturation control up to target_norm^2.
 
@@ -68,21 +68,19 @@ def svp_kernel_solver(g6k, eta, target_norm, workout_params, pump_params=None):
     # Setup tracer (dummy by default)
     tracer = dummy_tracer
     d = g6k.full_n
-
     # Quick check: if already short enough
     # if g6k.M.get_r(0, 0) <= target_norm:
     #     print("Already satisfied before workout.")
     #     return g6k
-    llb = max(0, d - eta)
     # while gaussian_heuristic([g6k.M.get_r(i, i) for i in range(llb, d)]) < target_norm * (d - llb)/(1.*d): # noqa
     #     llb -= 1
     #     if llb < 0:
     #         break
-    print(f"Starting workout on block [ {llb}, {d} ) of length {d - llb} with lifting on whole basis")
-
-    f = llb
+    # print(f"Starting workout on block [ {llb}, {d} ) of length {d - llb} with lifting on whole basis")
+    f = max(0, d - eta - kappa)
     # Run workout until target reached
-    pump(g6k, tracer, 0, d, f, verbose=True, goal_r0=target_norm**2)
+    print("kappa", kappa)
+    pump(g6k, tracer, kappa, d-kappa, f, verbose=True, goal_r0=((target_norm * (d-kappa)/d)**2)) # projected norm
 
 
 def float64_to_integer_matrix(A):
@@ -91,7 +89,7 @@ def float64_to_integer_matrix(A):
     return (A * scale_factor).astype(np.int64)
 
 #build it with -y and don't remove threads params
-def g6k_kernel(A,n, beta, jump, target_norm=None):
+def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
     if isinstance(A, IntegerMatrix):
         IM = A
     elif isinstance(A, np.ndarray):
@@ -121,8 +119,7 @@ def g6k_kernel(A,n, beta, jump, target_norm=None):
     #other mode possible 
     # workout(g6k, tracer, 0, n, pump_params=pump_params, **workout_params)
     if target_norm:
-        print("goal",target_norm)
-        svp_kernel_solver(g6k, beta, target_norm,workout_params, pump_params)
+        svp_kernel_solver(g6k, beta, target_norm, kappa, workout_params, pump_params)
         #pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True, goal_r0=proj_target_norm)
     else:
         if n <= beta:

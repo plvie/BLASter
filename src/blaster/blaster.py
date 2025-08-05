@@ -12,24 +12,26 @@ import cupy as cp
 # Local imports
 from blaster_core import \
     set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_G6K, apply_U_G6K, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu, solve_last_block_svp
-# from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-# from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
-# from .stats import get_profile, rhf, slope, potential, get_profile_gpu
-# from .lattice_io import write_lattice
-# from fpylll.util import gaussian_heuristic
+from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-# from .blaster_g6k_bridge import g6k_kernel
+from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
 
-from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+from .stats import get_profile, rhf, slope, potential, get_profile_gpu
+from .lattice_io import write_lattice
+from fpylll.util import gaussian_heuristic
 
-from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+from .blaster_g6k_bridge import g6k_kernel
 
-from stats import get_profile, rhf, slope, potential, get_profile_gpu
-from lattice_io import write_lattice
+# from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-from blaster_g6k_bridge import g6k_kernel
+# from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+
+# from stats import get_profile, rhf, slope, potential, get_profile_gpu
+# from lattice_io import write_lattice
+
+# from blaster_g6k_bridge import g6k_kernel
 
 class TimeProfile:
     """
@@ -540,7 +542,7 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 #         U_seysen[:] = cp.asnumpy(U_s_gpu)
 
 def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, jump=1, svp_call=False, target_norm=None, goal_margin=1.5):
+               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, jump, svp_call=False, target_norm=None, lifting_start=0, use_gpu=True):
     """
     Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, BLASter's deep-LLL is called in between calls of the SVP oracle.
@@ -549,18 +551,29 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
     # BKZ parameters:
     sieving = True
     n, tours_done, cur_front = B.shape[1], 0, 0
+
+    logging = False
     if svp_call:
             if not target_norm:
                 raise("You need to set a target norm")
             cur_front = n - beta
-    logging = False
-    lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
-
+            depth = 0
+    if use_gpu:
+        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+    else:
+        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
     if block_size < beta:
         block_size = beta
+    if jump > 1:
+        if (block_size - beta) % (jump - 1) != 0:
+            print("Block size will be reduced to align with the jump (beta, block_size, jump):",
+                beta, block_size, jump)
+            block_size -= (block_size - beta) % (jump - 1)
+            print("New block size set to", block_size)
+            if block_size == beta:
+                print("Warning: block_size equals beta; no jump will occur")
     while tours_done < bkz_tours:
         #the best is to call g6k with the same blocksize as beta
-        print("(BKZ-G6K) we are at :", cur_front)
         
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
         t1 = perf_counter_ns()
@@ -572,9 +585,11 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         if svp_call:
             if sieving:
-                Ug6k = g6k_kernel(B, w, beta, jump, target_norm)
+                Ug6k = g6k_kernel(B, w, beta, jump, target_norm, lifting_start)
                 ZZ_right_matmul(U, Ug6k)
                 ZZ_right_matmul(B, Ug6k)
+                lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+                return
             else:
                 print(solve_last_block_svp(R, U, delta, beta))
         else:
@@ -614,7 +629,10 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
         else:
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
-        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        if use_gpu:
+            lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        else:
+            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 
 # def hybrid_block_reduction(
@@ -747,7 +765,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 def reduce(
         B, lll_size: int = 64, delta: float = 0.99, cores: int = 1, debug: bool = False,
         verbose: bool = False, logfile: str = None, anim: str = None, depth: int = 0,
-        use_seysen: bool = False,
+        use_seysen: bool = False, jump = 1,
         **kwds
 ):
     """
@@ -818,7 +836,10 @@ def reduce(
     g6k_prog = kwds.get("g6k_prog")
     svp_call = kwds.get("svp_call")
     target_norm = kwds.get("target")
-    jump = kwds.get("jump")
+    lifting_start = kwds.get("lifting_start")
+    if lifting_start is None:
+        lifting_start = 0
+    use_gpu = kwds.get("use_gpu") # only for multithreading svp
     time_start = perf_counter_ns()
     try:
         if not beta:
@@ -837,10 +858,9 @@ def reduce(
             switch_over = 64
 
             if svp_call:
-                print("svp call")
                 G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta,
                            bkz_tours, bkz_size,
-                           tprof, tracers, debug, use_seysen, jump, svp_call, target_norm)
+                           tprof, tracers, debug, use_seysen, jump, svp_call, target_norm, lifting_start, use_gpu)
             else:
                 # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
                 # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,
@@ -885,7 +905,7 @@ def reduce(
         plt.gcf().set_size_inches(16, 9)
         # plt.show()
         ani.save(anim, dpi=120, writer=PillowWriter(fps=5))
-    print(tprof, file=stderr)
+    # print(tprof, file=stderr)
     # prof = get_profile(B)
     # print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
     #           f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
