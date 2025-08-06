@@ -390,5 +390,5 @@ def FT_matmul(cnp.ndarray[FT, ndim=2] A, cnp.ndarray[FT, ndim=2] B) -> cnp.ndarr
     """
     Return A * B.
     """
-    return A @ B
-
+    with np.errstate(under='warn'):
+        return A @ B

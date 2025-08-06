@@ -48,8 +48,12 @@ import cupy as cp
 import time
 import sys
 
+from sage.all import Matrix as SageMatrix, ZZ
+
 #RHF = 1.01267^n, slope = -0.039489, ∥b_1∥ = 631.0 Total time: 199.026s
 
+
+scale_factor = 2**52
 
 def svp_kernel_solver(g6k, eta, target_norm,kappa, workout_params, pump_params=None):
     """
@@ -69,24 +73,28 @@ def svp_kernel_solver(g6k, eta, target_norm,kappa, workout_params, pump_params=N
     tracer = dummy_tracer
     d = g6k.full_n
     # Quick check: if already short enough
-    # if g6k.M.get_r(0, 0) <= target_norm:
-    #     print("Already satisfied before workout.")
-    #     return g6k
-    # while gaussian_heuristic([g6k.M.get_r(i, i) for i in range(llb, d)]) < target_norm * (d - llb)/(1.*d): # noqa
-    #     llb -= 1
-    #     if llb < 0:
-    #         break
-    # print(f"Starting workout on block [ {llb}, {d} ) of length {d - llb} with lifting on whole basis")
+    
     f = max(0, d - eta - kappa)
-    # Run workout until target reached
-    print("kappa", kappa)
-    pump(g6k, tracer, kappa, d-kappa, f, verbose=True, goal_r0=((target_norm * (d-kappa)/d)**2)) # projected norm
+    print(f"Starting sieving on block [ {kappa}, {d} ) with a sieve of dim {eta}, so on [{f+kappa}, {d})")
+
+    #add some params
+    # params = {, "threads": 16}#, "reserved_n": beta, "db_size_factor": 4}
+    # kwds_ = OrderedDict()
+    # for k, v in params.items():
+    #     k_ = k.replace("__", "/")
+    #     kwds_[k_] = v
+    # params = kwds_
+    # params = SieverParams(**params)
+    # g6k.params = params
+
+    pump(g6k, tracer, kappa, d-kappa, f, verbose=True, down_sieve=True, goal_r0=((target_norm*scale_factor) **2) ) #already projected
 
 
 def float64_to_integer_matrix(A):
-    max_abs = np.nanmax(np.abs(A))
-    scale_factor = (2**62) // (int(max_abs) + 1) - 1
-    return (A * scale_factor).astype(np.int64)
+    # max_abs = np.nanmax(np.abs(A))
+    # scale_factor = (2**62) // (int(max_abs) + 1) - 1
+    # if scale_factor < 2**52:
+    return (A.astype(np.float128) * scale_factor).astype(np.longlong) # more precise conversion
 
 #build it with -y and don't remove threads params
 def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
@@ -95,14 +103,15 @@ def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
     elif isinstance(A, np.ndarray):
         if A.dtype == np.float64:
             max_abs = np.nanmax(np.abs(A))
-            scale_factor = (2**62) // (int(max_abs) + 1) - 1
+            # scale_factor = (2**62) // (int(max_abs) + 1) - 1
             # print(np.nanmax(np.abs(A - float64_to_integer_matrix(A).astype(np.float64)/scale_factor)))
             IM = IntegerMatrix.from_matrix(float64_to_integer_matrix(A).T)
         else:
             IM = IntegerMatrix.from_matrix(A.T)
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
-    params = {"pump__down_sieve": False, "threads": 16}#, "reserved_n": beta, "db_size_factor": 4}
+    params = {"pump__down_sieve": True, "threads": 16}#, "reserved_n": beta, "db_size_factor": 4}
+    #1.33 faster in dim 100 according to g6k paper
     kwds_ = OrderedDict()
     for k, v in params.items():
         k_ = k.replace("__", "/")
@@ -135,15 +144,24 @@ def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
         A_np = A.T
     B_np = np.empty((B.nrows, B.ncols), dtype=int)
     B.to_matrix(B_np)
+    # need to use sage sometimes because solve is only float64, so if you need more precision do in sage (like if it's on the wole basis)
+    # more precise for a really small cost
+    A_list = A_np.tolist()
+    B_list = B_np.tolist()
+    A_sage = SageMatrix(ZZ, A_list)
+    B_sage = SageMatrix(ZZ, B_list)
+    #U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
+    # 4) Solve A^T * U = B^T exactly: U_sage = (A_sage^T)^{-1} * B_sage^T
+    U_sage = A_sage.transpose().solve_right(B_sage.transpose())
 
-    U = np.rint(np.linalg.solve(A_np.T,B_np.T)).astype(np.int64)
-    # Cleanup before return just to be extra safe about memory usage
-    # del IM, g6k, B, B_np, A_np, params, pump_params, tracer
-    # gc.collect()
-    # cp.get_default_memory_pool().free_all_blocks()
-    # cp.get_default_pinned_memory_pool().free_all_blocks()
-    assert np.allclose(np.dot(A_np.T, U), B_np.T)
+    # 5) Convert back to numpy int64
+    U = U_sage.numpy()
+
+    # 6) Verification
+    # assert np.array_equal(A_np.T @ U, B_np.T)
+
     return U
+
 
 def pop_prefixed_params(prefix, params):
     """

@@ -558,10 +558,12 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
                 raise("You need to set a target norm")
             cur_front = n - beta
             depth = 0
-    if use_gpu:
-        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, False) #reduce the coeff of R for better approx after for G6K
     else:
-        lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        if use_gpu:
+            lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        else:
+            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
     if block_size < beta:
         block_size = beta
     if jump > 1:
@@ -585,11 +587,12 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         if svp_call:
             if sieving:
-                Ug6k = g6k_kernel(B, w, beta, jump, target_norm, lifting_start)
-                ZZ_right_matmul(U, Ug6k)
-                ZZ_right_matmul(B, Ug6k)
-                lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
-                return
+                R_sub = get_R_sub_G6K(R, lifting_start, n-lifting_start)
+                U_sub = g6k_kernel(R_sub, w, beta, jump, target_norm)
+                apply_U_G6K(B, U, U_sub, lifting_start, n-lifting_start)
+                # Ug6k = g6k_kernel(B, w, beta, jump, target_norm, lifting_start) # try on whole basis 
+                # ZZ_right_matmul(U, Ug6k)
+                # ZZ_right_matmul(B, Ug6k)
             else:
                 print(solve_last_block_svp(R, U, delta, beta))
         else:
@@ -603,7 +606,10 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
-            (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
+            if svp_call:
+                size_reduce(R, U_seysen)
+            else:
+                (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
 
         # Step 5: Update B and U with transformation from Seysen's reduction.
         t5 = perf_counter_ns()
@@ -751,7 +757,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
         # After printing: update the current location of the 'reduction front'
         if cur_front + beta > n:
-            # HKZ-reduction was performed at the end, which is the end of a tour.
+            # Maybe a issue here, if beta = 40 bkz_size=100 on a 600 matrix is buggy
             cur_front = 0
             tours_done += 1
         else:
