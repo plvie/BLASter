@@ -55,6 +55,8 @@ from sage.all import Matrix as SageMatrix, ZZ
 
 scale_factor = 2**52
 
+to_pyint = np.vectorize(int, otypes=[object])
+
 def svp_kernel_solver(g6k, eta, target_norm,kappa, workout_params, pump_params=None):
     """
     Solve SVP using workout with saturation control up to target_norm^2.
@@ -91,10 +93,18 @@ def svp_kernel_solver(g6k, eta, target_norm,kappa, workout_params, pump_params=N
 
 
 def float64_to_integer_matrix(A):
-    # max_abs = np.nanmax(np.abs(A))
-    # scale_factor = (2**62) // (int(max_abs) + 1) - 1
-    # if scale_factor < 2**52:
-    return (A.astype(np.float128) * scale_factor).astype(np.longlong) # more precise conversion
+    global scale_factor
+    mantisses, exponents = np.frexp(A)
+    min_exponent = exponents.min()
+    scale_factor = 2**(52 - int(min_exponent))
+    A_scaled = ((A * scale_factor))
+    y_int = to_pyint(A_scaled)
+
+    recon = y_int / scale_factor
+    if not np.all(recon == A):
+        print("warning : loss precision detected")
+    
+    return y_int # more precise conversion
 
 #build it with -y and don't remove threads params
 def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
@@ -142,9 +152,9 @@ def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
         A_np = float64_to_integer_matrix(A).T
     else:
         A_np = A.T
-    B_np = np.empty((B.nrows, B.ncols), dtype=int)
+    B_np = np.empty((B.nrows, B.ncols), dtype=object)
     B.to_matrix(B_np)
-    # need to use sage sometimes because solve is only float64, so if you need more precision do in sage (like if it's on the wole basis)
+    # need to use sage sometimes because solve is only float64, so if you need more precision do in sage (like now with the better conversion)
     # more precise for a really small cost
     A_list = A_np.tolist()
     B_list = B_np.tolist()
