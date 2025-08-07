@@ -94,15 +94,19 @@ def svp_kernel_solver(g6k, eta, target_norm,kappa, workout_params, pump_params=N
 
 def float64_to_integer_matrix(A):
     global scale_factor
-    mantisses, exponents = np.frexp(A)
-    min_exponent = exponents.min()
-    scale_factor = 2**(52 - int(min_exponent))
-    A_scaled = ((A * scale_factor))
+    _, exponents = np.frexp(A)
+    min_exponent = max(0, int(exponents.min())) # not use a too high scale factor if it's already high
+    scale_factor = 2**(52-min_exponent)
+    A_scaled = ((A.astype(np.float128) * scale_factor)) #float128 for safety compute
     y_int = to_pyint(A_scaled)
 
-    recon = y_int / scale_factor
-    if not np.all(recon == A):
+    #if debug
+    recon = np.array(y_int, dtype=np.float128) / scale_factor
+    if not np.allclose(recon, A.astype(np.float128), atol=np.finfo(np.float64).eps): # because BLAS (QR before) is already at some machine epsilon float64
+        errors = np.abs(A.astype(np.float128) - recon)
+        max_error = errors.max()
         print("warning : loss precision detected")
+        print("max error", max_error)
     
     return y_int # more precise conversion
 
@@ -144,9 +148,12 @@ def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
         if n <= beta:
                 pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True)
         else:
-            for i in range(0,n-beta-jump+2, jump):
-                    pump(g6k, tracer, i, beta+jump-1, 0, **pump_params, verbose=True) # overshotting the beta to avoid the extra cost of call G6K each time
-                    g6k.lll(0,n)
+            i = 0
+            end = n - beta
+            while i < end:
+                length = min(jump, end - i)
+                pump(g6k, tracer, i, beta + length - 1, 0, **pump_params, verbose=True)
+                i += length
     B = g6k.M.B
     if A.dtype == np.float64:
         A_np = float64_to_integer_matrix(A).T

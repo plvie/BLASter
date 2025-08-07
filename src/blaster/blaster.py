@@ -566,14 +566,14 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
             lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
     if block_size < beta:
         block_size = beta
-    if jump > 1:
-        if (block_size - beta) % (jump - 1) != 0:
-            print("Block size will be reduced to align with the jump (beta, block_size, jump):",
-                beta, block_size, jump)
-            block_size -= (block_size - beta) % (jump - 1)
-            print("New block size set to", block_size)
-            if block_size == beta:
-                print("Warning: block_size equals beta; no jump will occur")
+    # if jump > 1:
+    #     if (block_size - beta) % (jump - 1) != 0:
+    #         print("Block size will be reduced to align with the jump (beta, block_size, jump):",
+    #             beta, block_size, jump)
+    #         block_size -= (block_size - beta) % (jump - 1)
+    #         print("New block size set to", block_size)
+    #         if block_size == beta:
+    #             print("Warning: block_size equals beta; no jump will occur")
     while tours_done < bkz_tours:
         #the best is to call g6k with the same blocksize as beta
         
