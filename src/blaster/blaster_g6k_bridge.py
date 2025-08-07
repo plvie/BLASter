@@ -94,6 +94,7 @@ def svp_kernel_solver(g6k, eta, target_norm,kappa, workout_params, pump_params=N
 
 def float64_to_integer_matrix(A):
     global scale_factor
+
     _, exponents = np.frexp(A)
     min_exponent = max(0, int(exponents.min())) # not use a too high scale factor if it's already high
     scale_factor = 2**(52-min_exponent)
@@ -124,7 +125,7 @@ def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
             IM = IntegerMatrix.from_matrix(A.T)
     else:
         raise TypeError(f"Unsupported matrix type {type(A)}")
-    params = {"pump__down_sieve": True, "threads": 16}#, "reserved_n": beta, "db_size_factor": 4}
+    params = {"pump__down_sieve": True, "pump__down_stop":15, "threads": 16}#, "reserved_n": beta, "db_size_factor": 4}
     #1.33 faster in dim 100 according to g6k paper
     kwds_ = OrderedDict()
     for k, v in params.items():
@@ -152,7 +153,8 @@ def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
             end = n - beta
             while i < end:
                 length = min(jump, end - i)
-                pump(g6k, tracer, i, beta + length - 1, 0, **pump_params, verbose=True)
+                dim4free = default_dim4free_fun(beta + length - 1)
+                pump(g6k, tracer, i, beta + length - 1, dim4free, **pump_params, verbose=True)
                 i += length
     B = g6k.M.B
     if A.dtype == np.float64:
