@@ -225,7 +225,7 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     m = len(ranges)
     level = 0
     offset = 0
-
+    # a partir d'ici capturable
     for batch_size, current_ranges, max_h, max_w  in batches:
         if batch_size > 1 and not (batch_size < min_batch and max_h*max_w < area_batch):
             ranges_np = ranges_np_full[offset : offset + batch_size]
@@ -243,15 +243,19 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             R11 = R_gpu[I[:,:,None], I[:,None,:]]      # (b, h, h)
             R12 = R_gpu[I[:,:,None], J[:,None,:]]      # (b, h, w)
             U22 = Uf_gpu[J[:,:,None], J[:,None,:]]     # (b, w, w)
+            Uf_block    = Uf_gpu[I[:,:,None], I[:,None,:]]  # (b, h, h)
 
             b, h, w = int(batch_size), int(max_h), int(max_w)
             S, U, Z = _get_workspace(dtype, b, h, w)
+
+            #tout ca ce capture ?
             # 5) GEMM + solve -> U12 (b, h, w)
+            # fuse_call(R12,U22,R11,Uf_gpu,R_gpu,S,U,Z)
             cp.matmul(R12, U22, out=S)
-            cp.rint(-cp.linalg.solve(R11, S), out=U) # solve_triangular in pre-realase cupy
+            cp.rint(-cp.linalg.solve(R11, S), out=U)
 
             # 6) mise à jour des sous-blocs
-            Uf_block    = Uf_gpu[I[:,:,None], I[:,None,:]]  # (b, h, h)
+ 
             cp.matmul(R11, U, out=Z)               # (b, h, w)
             cp.matmul(Uf_block, U, out=U)          # (b, h, w)
             R_gpu[I[:, :, None], J[:, None, :]]  = S + Z

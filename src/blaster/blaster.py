@@ -163,7 +163,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         # On wrappe ça en numpy pour manipuler :
         R_cpu = np.frombuffer(pinned_host_arr, dtype=np.float64, count=n*m).reshape((n, m))
 
-    logging = True
+    logging = False
     while not is_reduced:
         # — Step 1: QR on GPU
         t1 = perf_counter_ns()
@@ -252,7 +252,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             seysen_reduce_gpu(R_gpu, U_s_gpu)
         else:
             raise "Error not Implemented"
-
+        
         # — Step 5: update your basis and U on GPU
         # assert is_seysen_reduced(R_gpu)
         t5 = perf_counter_ns()
@@ -911,7 +911,7 @@ def reduce(
         plt.gcf().set_size_inches(16, 9)
         # plt.show()
         ani.save(anim, dpi=120, writer=PillowWriter(fps=5))
-    # print(tprof, file=stderr)
+    print(tprof, file=stderr)
     # prof = get_profile(B)
     # print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
     #           f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
