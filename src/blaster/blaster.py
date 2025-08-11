@@ -125,6 +125,55 @@ def is_seysen_reduced(R, tol=1e-8):
     print(np.max(np.abs(result)))
     return np.max(np.abs(result)) < 1/2
 
+    
+
+
+def apply_blocks_strided_batched(U_gpu, B_gpu, U_sub_gpu, offset, lll_size):
+    """
+    U_sub_gpu: shape (num_blocks, w*w) flatten, sur GPU (float64 conseillé)
+    Applique pour chaque bloc i: [:, j0:j0+w] = [:, j0:j0+w] @ Ublock
+    """
+    m, n = U_gpu.shape
+    rem = n - offset
+    if rem <= 0:
+        return
+
+    full = rem // lll_size
+    tail = rem - full * lll_size
+
+    # -------- blocs pleins (m, lll_size) x (lll_size, lll_size) --------
+    if full > 0:
+        Ub_full = U_sub_gpu[:full, : lll_size*lll_size].reshape(full, lll_size, lll_size)
+        # (m, full*lll_size) vue -> (full, m, lll_size)
+        U_tail = U_gpu[:, offset : offset + full * lll_size]
+        B_tail = B_gpu[:, offset : offset + full * lll_size]
+
+        s0U, s1U = U_tail.strides
+        s0B, s1B = B_tail.strides
+        step = lll_size * s1U  # stride pour avancer d'un bloc de colonnes
+
+        U_view = cp.lib.stride_tricks.as_strided(
+            U_tail, shape=(full, m, lll_size), strides=(step, s0U, s1U)
+        )
+        B_view = cp.lib.stride_tricks.as_strided(
+            B_tail, shape=(full, m, lll_size), strides=(step, s0B, s1B)
+        )
+
+        # GEMM batché (cuBLAS strided-batched via cp.matmul)
+        # Résultats temporaires (évite l'écrasement en place)
+        U_tmp = U_view @ Ub_full
+        B_tmp = B_view @ Ub_full
+
+        # Écriture en place dans les vues (modifie directement U_gpu/B_gpu)
+        U_view[...] = U_tmp
+        B_view[...] = B_tmp
+
+    # -------- dernier bloc partiel --------
+    if tail > 0:
+        j0 = offset + full * lll_size
+        Ub_tail = U_sub_gpu[full, : tail*tail].reshape(tail, tail)
+        U_gpu[:, j0:j0+tail] = U_gpu[:, j0:j0+tail] @ Ub_tail
+        B_gpu[:, j0:j0+tail] = B_gpu[:, j0:j0+tail] @ Ub_tail
 
 
 def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
@@ -164,6 +213,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         R_cpu = np.frombuffer(pinned_host_arr, dtype=np.float64, count=n*m).reshape((n, m))
 
     logging = False
+    streamU = cp.cuda.Stream(non_blocking=True)
     while not is_reduced:
         # — Step 1: QR on GPU
         t1 = perf_counter_ns()
@@ -189,11 +239,13 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
             # Calcul du nombre de blocs
             num_blocks = int((n - offset + lll_size - 1) // lll_size)
             for block_id in range(num_blocks): # this loop is faster than a batch, tested for n <= 4096
+
                 i = offset + lll_size * block_id
                 w = min(n - i, lll_size)
                 block_vals = U_sub_gpu[block_id, : w*w].reshape(w, w)
                 # Au lieu de U_sub_total, on réécrit juste les colonnes concernées :
-                U_gpu[:, i : i + w] = U_gpu[:, i : i + w] @ block_vals
+                with streamU:
+                    U_gpu[:, i : i + w] = U_gpu[:, i : i + w] @ block_vals
                 B_gpu[:, i : i + w] = B_gpu[:, i : i + w] @ block_vals
 
 
@@ -247,18 +299,19 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         R_gpu = cp.linalg.qr(B_gpu, mode='r')
 
         # — Step 4: Seysen or size‐reduce on GPU
+        #synchronyse cupy here
         t4 = perf_counter_ns()
         if use_seysen:
             seysen_reduce_gpu(R_gpu, U_s_gpu)
         else:
             raise "Error not Implemented"
-        
         # — Step 5: update your basis and U on GPU
         # assert is_seysen_reduced(R_gpu)
         t5 = perf_counter_ns()
-        U_gpu = U_gpu @ U_s_gpu
-        B_gpu = B_gpu @ U_s_gpu
-
+        # two different stream for this
+        with streamU:
+            cp.matmul(U_gpu, U_s_gpu, out=U_gpu)
+        cp.matmul(B_gpu, U_s_gpu, out=B_gpu)
         # — Step 6: check “weak LLL” on GPU (or pull diag back)
         t6 = perf_counter_ns()
 
@@ -279,6 +332,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         is_reduced = mv[0]
 
     # 4) finally, write results back to host arrays if needed
+    streamU.synchronize() # only synchronise U at
     if not is_U_gpu:
         U[:] = cp.asnumpy(U_gpu)
     if not is_B_gpu:

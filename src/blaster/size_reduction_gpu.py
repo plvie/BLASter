@@ -27,7 +27,7 @@ def is_weakly_lll_reduced_gpu(R, host_flag, delta=0.99):
     w =        R[i + 1, i + 1]   # shape (n-1,)
 
     # compute centered v_mod = (v mod u) in [−u/2, +u/2)
-    v_mod = v - cp.rint(v / u) * u
+    v_mod = ((v + u/2) % u) - u/2
 
     # LLL condition: v_mod**2 + w**2 > δ * u**2
     ok = (v_mod**2 + w**2) > (delta * u**2)
@@ -45,63 +45,52 @@ def is_weakly_lll_reduced_gpu(R, host_flag, delta=0.99):
     )
 
 
+def _next_pow2(n: int) -> int:
+    return 1 << (n - 1).bit_length()
 
-@cache
-def __reduction_ranges(n):
+def __reduction_ranges_pow2(n: int):
     """
-    Return list of ranges that needs to be reduced.
-
-    More generally, it returns, without using recursion, the list that would be
-    the output of the following Python program:
-
-    <<<BEGIN CODE>>>
-    def rec_range(n):
-        bc, res = [], []
-        def F(l, r):
-            if l == r:
-                return
-            if l + 1 == r:
-                bc.append(l)
-            else:
-                m = (l + r) // 2
-                F(l, m)
-                F(m, r)
-                res.append((l, m, r))
-        return F(0, n)
-    <<<END CODE>>>
-
-    :param n: the length of the array that requires reduction
-    :return: pair containing `the base_cases` and `result`.
-             `base_cases` is a list of indices `i` such that:
-                `i + 1` needs to be reduced w.r.t. `i`.
-             `result` is a list of triples `(i, j, k)` such that:
-                `[j:k)` needs to be reduced w.r.t. `[i:j)`.
-             The guarantee is that for any 0 <= i < j < n:
-             1) `i in base_cases && j = i + 1`,
-             OR
-             2) there is a triple (u, v, w) such that `i in [u, v)` and `j in [v, w)`.
+    Intervalles (virtuellement) sur M=2^ceil(log2 n), puis clipping à [0,n).
+    - ordre topologique garanti: tailles croissantes (s = 4,8,...,M)
+    - à taille fixée, on regroupe/intériorise pour maximiser (h,w) identiques
+    Retourne (base_cases, triples).
     """
-    bit_shift, parts, result, base_cases = 1, 1, [], []
-    while parts < n:
-        left_bound, left_idx = 0, 0
-        for i in range(1, parts + 1):
-            right_bound = left_bound + 2 * n
+    M = _next_pow2(n)
 
-            mid_idx = (left_bound + n) >> bit_shift
-            right_idx = right_bound >> bit_shift
+    # base cases = feuilles s==2 de la décomposition sur [0,M), puis clip
+    base_cases = []
+    for l in range(0, M, 2):     # intervalles [l,l+2)
+        i = min(l, n)
+        j = min(l+1, n)
+        if j < n:                # garde uniquement i s.t. i+1 existe dans [0,n)
+            base_cases.append(i)
 
-            if right_idx > left_idx + 1:
-                # Only consider nontrivial intervals
-                if right_idx == left_idx + 2:
-                    # Return length 2 intervals separately to unroll base case.
-                    base_cases.append(left_idx)
-                else:
-                    # Properly sized interval:
-                    result.append((left_idx, mid_idx, right_idx))
-            left_bound, left_idx = right_bound, right_idx
-        parts *= 2
-        bit_shift += 1
-    return base_cases, list(reversed(result))
+    # niveaux s = 4,8,...,M
+    result = []
+    for e in range(2, M.bit_length()+1):
+        s = 1 << e
+        level = []
+        for l in range(0, M, s):
+            m = l + (s >> 1)
+            r = l + s
+            # clip à [0,n]
+            li, mi, ri = min(l, n), min(m, n), min(r, n)
+            # jette les triples vides/dégénérés
+            if li < mi < ri:
+                level.append((li, mi, ri))
+
+        # maximise les runs homogènes dans le niveau
+        # tri: intérieurs d'abord (k!=n), puis par (h, w)
+        level.sort(key=lambda t: (t[2] == n, t[1]-t[0], t[2]-t[1]))
+        result.extend(level)
+
+    # (rare) dédup si clipping crée des doublons
+    seen, uniq = set(), []
+    for t in result:
+        if t not in seen:
+            uniq.append(t); seen.add(t)
+
+    return base_cases, uniq
 
 
 import cupy as cp
@@ -159,28 +148,6 @@ def dynamic_batches(ranges, N, min_batch=8):
 
     return batches
 
-
-__workspace_cache = {}  # key: (dtype.str, b, h, w) -> dict(S, U, Z)
-
-def _get_workspace(dtype, b, h, w):
-    """
-    Réutilise des buffers 3D (b,h,w) pour éviter les allocs répétées.
-    S: buffer polyvalent (S12 puis X=R11^{-1}S)
-    U: U12 (arrondi) puis delta
-    Z: Uf12 (résultat GEMM)
-    """
-    dt = cp.dtype(dtype)
-    key = (dt.str, int(b), int(h), int(w))
-    ws = __workspace_cache.get(key)
-    if ws is None:
-        ws = {
-            "S": cp.empty((b, h, w), dtype=dt, order="C"),
-            "U": cp.empty((b, h, w), dtype=dt, order="C"),
-            "Z": cp.empty((b, h, w), dtype=dt, order="C"),
-        }
-        __workspace_cache[key] = ws
-    return ws["S"], ws["U"], ws["Z"]
-
 def seysen_reduce_gpu(R_gpu, U_gpu):
     """
     GPU version of Seysen's reduction on an upper-triangular matrix R_gpu,
@@ -190,16 +157,16 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     :param U_gpu: cp.ndarray, integer transformation matrix (upper-triangular with 1s on diag)
     """
     n = R_gpu.shape[0]
-    dtype = R_gpu.dtype
 
     #param ici
-    min_batch = 8
-    area_batch = 32*32
+    min_batch = 4
+    min_batch_low = 8
+    area_limit = 64*64
 
     # Use cached ranges if available
     if n not in __reduction_cache:
 
-        base_cases, ranges = __reduction_ranges(n)
+        base_cases, ranges = __reduction_ranges_pow2(n)
 
         i_arr = cp.array(base_cases, dtype=cp.int32)
         batches = dynamic_batches(ranges,n)
@@ -220,14 +187,14 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
         R_gpu[i_arr, i_arr + 1] += u * t
 
     # # 2) Main reduction loops
-    Uf_gpu = U_gpu.astype(R_gpu.dtype, copy=True)  # float‐work copy
+    Uf_gpu = U_gpu.astype(R_gpu.dtype, copy=True)  # float‐work copy (only once)
 
     m = len(ranges)
     level = 0
     offset = 0
-    # a partir d'ici capturable
+
     for batch_size, current_ranges, max_h, max_w  in batches:
-        if batch_size > 1 and not (batch_size < min_batch and max_h*max_w < area_batch):
+        if batch_size >= min_batch and not (batch_size <= min_batch_low and (max_h * max_w) < area_limit):
             ranges_np = ranges_np_full[offset : offset + batch_size]
             i_arr, j_arr, k_arr = ranges_np[:,0], ranges_np[:,1], ranges_np[:,2]
 
@@ -243,23 +210,21 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             R11 = R_gpu[I[:,:,None], I[:,None,:]]      # (b, h, h)
             R12 = R_gpu[I[:,:,None], J[:,None,:]]      # (b, h, w)
             U22 = Uf_gpu[J[:,:,None], J[:,None,:]]     # (b, w, w)
-            Uf_block    = Uf_gpu[I[:,:,None], I[:,None,:]]  # (b, h, h)
-
-            b, h, w = int(batch_size), int(max_h), int(max_w)
-            S, U, Z = _get_workspace(dtype, b, h, w)
-
-            #tout ca ce capture ?
             # 5) GEMM + solve -> U12 (b, h, w)
-            # fuse_call(R12,U22,R11,Uf_gpu,R_gpu,S,U,Z)
-            cp.matmul(R12, U22, out=S)
-            cp.rint(-cp.linalg.solve(R11, S), out=U)
+            S12 = cp.matmul(R12, U22)
+            U12 = cp.rint(-cp.linalg.solve(R11, S12))
 
             # 6) mise à jour des sous-blocs
- 
-            cp.matmul(R11, U, out=Z)               # (b, h, w)
-            cp.matmul(Uf_block, U, out=U)          # (b, h, w)
-            R_gpu[I[:, :, None], J[:, None, :]]  = S + Z
-            Uf_gpu[I[:, :, None], J[:, None, :]] = U
+            Uf_block    = Uf_gpu[I[:,:,None], I[:,None,:]]  # (b, h, h)
+            R12_update  = cp.matmul(R11, U12)               # (b, h, w)
+            Uf12_update = cp.matmul(Uf_block, U12)          # (b, h, w)
+            I_idx = I[:,:,None].repeat(max_w, axis=2)   # (b, h, w)
+            J_idx = J[:,None,:].repeat(max_h, axis=1)   # (b, h, w)
+            I_flat = I_idx.reshape(-1)
+            J_flat = J_idx.reshape(-1)
+            # 8) scatter-update
+            R_gpu[I_flat, J_flat]  = (S12 + R12_update).reshape(-1)
+            Uf_gpu[I_flat, J_flat] = Uf12_update.reshape(-1)
         else:
             for (i, j, k) in current_ranges:
                 # S12' = R[i:j, j:k] @ U[j:k, j:k]
@@ -273,6 +238,6 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
                 R_gpu[i:j, j:k] = S12p + S11.dot(U12p)
 
                 # U[i:j, j:k] = U[i:j, i:j] @ U12'
-                Uf_gpu[i:j, j:k] = Uf_gpu[i:j, i:j].dot(U12p)
+                Uf_gpu[i:j, j:k] = (Uf_gpu[i:j, i:j].dot(U12p))
         offset+= batch_size
     U_gpu[:, :] = cp.rint(Uf_gpu).astype(U_gpu.dtype)
