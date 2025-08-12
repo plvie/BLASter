@@ -661,11 +661,9 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
                 raise("You need to set a target norm")
             cur_front = n - beta
             depth = 0
-            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, False) #reduce the coeff of R for better approx after for G6K
-    else:
-        if use_gpu:
+    if use_gpu:
             lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
-        else:
+    else:
             lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
     if block_size < beta:
         block_size = beta
