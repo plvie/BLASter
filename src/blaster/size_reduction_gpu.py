@@ -157,6 +157,9 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     :param U_gpu: cp.ndarray, integer transformation matrix (upper-triangular with 1s on diag)
     """
     n = R_gpu.shape[0]
+    dev_id = int(R_gpu.device.id)
+
+    key = (dev_id, n)
 
     #param ici
     min_batch = 4
@@ -164,7 +167,7 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
     area_limit = 64*64
 
     # Use cached ranges if available
-    if n not in __reduction_cache:
+    if key not in __reduction_cache:
 
         base_cases, ranges = __reduction_ranges_pow2(n)
 
@@ -173,9 +176,9 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
 
         ranges_np_full = cp.asarray(ranges, dtype=cp.int32)
 
-        __reduction_cache[n] = (base_cases, ranges, i_arr, ranges_np_full, batches)
+        __reduction_cache[key] = (base_cases, ranges, i_arr, ranges_np_full, batches)
     else:
-        base_cases, ranges, i_arr, ranges_np_full, batches = __reduction_cache[n]
+        base_cases, ranges, i_arr, ranges_np_full, batches = __reduction_cache[key]
 
     if base_cases:
         # gather diagonals and super‐diagonals
@@ -199,8 +202,11 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
             i_arr, j_arr, k_arr = ranges_np[:,0], ranges_np[:,1], ranges_np[:,2]
 
             # 2) préparer caches
-            rows_h = _rows_h_cache.setdefault(max_h, cp.arange(max_h, dtype=cp.int32))
-            cols_w = _cols_w_cache.setdefault(max_w, cp.arange(max_w, dtype=cp.int32))
+            rows_key = (dev_id, max_h)
+            cols_key = (dev_id, max_w)
+            with R_gpu.device:
+                rows_h = _rows_h_cache.setdefault(rows_key, cp.arange(max_h, dtype=cp.int32))
+                cols_w = _cols_w_cache.setdefault(cols_key, cp.arange(max_w, dtype=cp.int32))
 
             # 3) construire I, J
             I = i_arr[:, None] + rows_h[None, :]   # (batch_size, max_h)

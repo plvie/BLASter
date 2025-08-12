@@ -207,7 +207,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
     if R_cpu is None:
         n, m = B_gpu.shape
-        pinned_host_arr = cp.cuda.alloc_pinned_memory(n* m * 8) #memory needed
+        pinned_host_arr = cp.cuda.alloc_pinned_memory(n * m * 8) #memory needed
 
         # On wrappe ça en numpy pour manipuler :
         R_cpu = np.frombuffer(pinned_host_arr, dtype=np.float64, count=n*m).reshape((n, m))
@@ -339,6 +339,9 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         B[:] = cp.asnumpy(B_gpu)
     if not is_U_s_gpu:
         U_seysen[:] = cp.asnumpy(U_s_gpu)
+    
+    cp.get_default_memory_pool().free_all_blocks()
+    cp.get_default_pinned_memory_pool().free_all_blocks()
     
 def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
@@ -595,6 +598,43 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 #     if not is_U_s_gpu:
 #         U_seysen[:] = cp.asnumpy(U_s_gpu)
 
+
+def report_cupy_memory():
+    n = cp.cuda.runtime.getDeviceCount()
+    print("CuPy memory report:")
+    for dev_id in range(n):
+        cp.cuda.Device(dev_id).use()
+        free_b, total_b = cp.cuda.runtime.memGetInfo()
+        used_b = total_b - free_b
+
+        mp = cp.get_default_memory_pool()
+
+        # Pinned pool (selon version)
+        pmp = getattr(cp, "get_default_pinned_memory_pool", None)
+        pmp = pmp() if callable(pmp) else None
+
+        print(f"\nGPU {dev_id}:")
+        print(f"  Device     used: {used_b/1e9:6.2f} GB   free: {free_b/1e9:6.2f} GB   total: {total_b/1e9:6.2f} GB")
+        print(f"  CuPy pool  used: {mp.used_bytes()/1e9:6.2f} GB   held: {mp.total_bytes()/1e9:6.2f} GB")
+
+        if pmp is not None:
+            # Attributs optionnels selon version
+            pmp_total = pmp.total_bytes() if hasattr(pmp, "total_bytes") else None
+            pmp_used  = pmp.used_bytes()  if hasattr(pmp, "used_bytes")  else None
+            pmp_nfree = pmp.n_free_blocks() if hasattr(pmp, "n_free_blocks") else None
+
+            msg = "  Pinned pool "
+            if pmp_used is not None:
+                msg += f"used: {pmp_used/1e9:6.2f} GB   "
+            if pmp_total is not None:
+                msg += f"held: {pmp_total/1e9:6.2f} GB   "
+            if pmp_nfree is not None:
+                msg += f"free_blocks: {pmp_nfree}"
+            if msg.endswith("  "): msg = msg[:-2]
+            print(msg or "  Pinned pool: N/A")
+        else:
+            print("  Pinned pool: N/A on this CuPy")
+
 def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, jump, svp_call=False, target_norm=None, lifting_start=0, use_gpu=True):
     """
@@ -654,6 +694,7 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
             U_sub = g6k_kernel(R_sub, w, beta, jump)
             apply_U_G6K(B, U, U_sub, cur_front, w)
 
+        report_cupy_memory()
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
         # assert abs(R[cur_front, cur_front]) <= norm_before

@@ -147,7 +147,8 @@ def g6k_kernel(A,n, beta, jump, target_norm=None, kappa=0):
         #pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True, goal_r0=proj_target_norm)
     else:
         if n <= beta:
-                pump(g6k, tracer, 0, n, 0, **pump_params, verbose=True)
+                dim4free = default_dim4free_fun(n)
+                pump(g6k, tracer, 0, n, dim4free, **pump_params, verbose=True)
         else:
             i = 0
             end = n - beta
