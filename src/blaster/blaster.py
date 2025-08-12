@@ -14,24 +14,24 @@ from blaster_core import \
     set_debug_flag, set_num_cores, block_lll, block_deep_lll, block_bkz, ZZ_right_matmul ,get_R_sub_G6K, apply_U_G6K, block_lll_gpu, block_deep_lll_gpu, block_bkz_gpu, solve_last_block_svp
 
 
-# from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+from .size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-# from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+from .size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu, clear_internal_caches
 
-# from .stats import get_profile, rhf, slope, potential, get_profile_gpu
-# from .lattice_io import write_lattice
-# from fpylll.util import gaussian_heuristic
+from .stats import get_profile, rhf, slope, potential, get_profile_gpu
+from .lattice_io import write_lattice
+from fpylll.util import gaussian_heuristic
 
-# from .blaster_g6k_bridge import g6k_kernel
+from .blaster_g6k_bridge import g6k_kernel
 
-from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
+# from size_reduction import is_lll_reduced, is_weakly_lll_reduced, size_reduce, seysen_reduce
 
-from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu
+# from size_reduction_gpu import is_weakly_lll_reduced_gpu, seysen_reduce_gpu, clear_internal_caches
 
-from stats import get_profile, rhf, slope, potential, get_profile_gpu
-from lattice_io import write_lattice
+# from stats import get_profile, rhf, slope, potential, get_profile_gpu
+# from lattice_io import write_lattice
 
-from blaster_g6k_bridge import g6k_kernel
+# from blaster_g6k_bridge import g6k_kernel
 
 class TimeProfile:
     """
@@ -340,9 +340,6 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     if not is_U_s_gpu:
         U_seysen[:] = cp.asnumpy(U_s_gpu)
     
-    cp.get_default_memory_pool().free_all_blocks()
-    cp.get_default_pinned_memory_pool().free_all_blocks()
-    
 def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
     
@@ -635,6 +632,15 @@ def report_cupy_memory():
         else:
             print("  Pinned pool: N/A on this CuPy")
 
+import gc
+def live_cupy_arrays(limit=10):
+    arrs = [o for o in gc.get_objects() if isinstance(o, cp.ndarray)]
+    arrs.sort(key=lambda a: a.nbytes, reverse=True)
+    for a in arrs[:limit]:
+        print(a.shape, a.dtype, f"{a.nbytes/1e9:.3f} GB")
+    print("TOTAL", sum(a.nbytes for a in arrs)/1e9, "GB")
+
+
 def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, jump, svp_call=False, target_norm=None, lifting_start=0, use_gpu=True):
     """
@@ -645,6 +651,9 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
     # BKZ parameters:
     sieving = True
     n, tours_done, cur_front = B.shape[1], 0, 0
+
+    mp = cp.get_default_memory_pool()
+    mp.set_limit(fraction=0.5) # for let space to G6K
 
     logging = False
     if svp_call:
@@ -693,8 +702,6 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
             R_sub = get_R_sub_G6K(R, cur_front, w)
             U_sub = g6k_kernel(R_sub, w, beta, jump)
             apply_U_G6K(B, U, U_sub, cur_front, w)
-
-        report_cupy_memory()
         t3 = perf_counter_ns()
         R = np.linalg.qr(B, mode='r')
         # assert abs(R[cur_front, cur_front]) <= norm_before
@@ -702,7 +709,7 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
             if svp_call:
-                size_reduce(R, U_seysen)
+                seysen_reduce(R, U_seysen)
             else:
                 (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
 
@@ -727,6 +734,7 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
             # reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
+            clear_internal_caches(verbose=True)
         else:
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
@@ -855,6 +863,7 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
             # Maybe a issue here, if beta = 40 bkz_size=100 on a 600 matrix is buggy
             cur_front = 0
             tours_done += 1
+            clear_internal_caches(verbose=True) # avoid too huge cache from cupy and not each LLL for limit overhead
         else:
             cur_front += (bkz_size - beta + 1)
             #cur_front += 1

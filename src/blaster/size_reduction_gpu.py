@@ -247,3 +247,42 @@ def seysen_reduce_gpu(R_gpu, U_gpu):
                 Uf_gpu[i:j, j:k] = (Uf_gpu[i:j, i:j].dot(U12p))
         offset+= batch_size
     U_gpu[:, :] = cp.rint(Uf_gpu).astype(U_gpu.dtype)
+
+
+
+import gc
+def _pool_report(tag=""):
+    free, total = cp.cuda.runtime.memGetInfo()
+    used = total - free
+    mp = cp.get_default_memory_pool()
+    pp = cp.get_default_pinned_memory_pool()
+    print(f"[{tag}] used={used/1e9:.2f}GB | pool_used={mp.used_bytes()/1e9:.2f}GB | pool_held={mp.total_bytes()/1e9:.2f}GB")
+
+def clear_internal_caches(trim_pools=True, all_devices=True, verbose=False):
+    global __reduction_cache, _rows_h_cache, _cols_w_cache
+
+    if verbose: _pool_report("before")
+
+    # 1) Drop refs Python
+    __reduction_cache.clear()
+    _rows_h_cache.clear()
+    _cols_w_cache.clear()
+
+    # 2) GC + sync pour être sûr que rien n'est encore en vol
+    gc.collect()
+
+    if all_devices:
+        ndev = cp.cuda.runtime.getDeviceCount()
+        for dev in range(ndev):
+            with cp.cuda.Device(dev):
+                cp.cuda.runtime.deviceSynchronize()
+                if trim_pools:
+                    cp.get_default_memory_pool().free_all_blocks()
+    else:
+        cp.cuda.runtime.deviceSynchronize()
+        if trim_pools:
+            cp.get_default_memory_pool().free_all_blocks()
+    if trim_pools:
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+
+    if verbose: _pool_report("after")
