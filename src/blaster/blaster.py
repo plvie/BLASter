@@ -642,7 +642,7 @@ def live_cupy_arrays(limit=10):
 
 
 def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
-               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, jump, svp_call=False, target_norm=None, lifting_start=0, use_gpu=True):
+               beta, bkz_tours, block_size, tprof, tracers, debug, use_seysen, jump, svp_call=False, target_norm=None, lifting_start=0):
     """
     Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
     If `depth` is supplied, BLASter's deep-LLL is called in between calls of the SVP oracle.
@@ -661,10 +661,7 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
                 raise("You need to set a target norm")
             cur_front = n - beta
             depth = 0
-    if use_gpu:
-            lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
-    else:
-            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+    lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
     if block_size < beta:
         block_size = beta
     # if jump > 1:
@@ -691,11 +688,11 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
                 R_sub = get_R_sub_G6K(R, lifting_start, n-lifting_start)
                 U_sub = g6k_kernel(R_sub, w, beta, jump, target_norm)
                 apply_U_G6K(B, U, U_sub, lifting_start, n-lifting_start)
-                # Ug6k = g6k_kernel(B, w, beta, jump, target_norm, lifting_start) # try on whole basis 
+                # Ug6k = g6k_kernel(B, w, beta, jump, target_norm, lifting_start) # try on whole basis (for debug)
                 # ZZ_right_matmul(U, Ug6k)
                 # ZZ_right_matmul(B, Ug6k)
             else:
-                print(solve_last_block_svp(R, U, delta, beta))
+                print(solve_last_block_svp(R, U, delta, beta)) # not used yet
         else:
             R_sub = get_R_sub_G6K(R, cur_front, w)
             U_sub = g6k_kernel(R_sub, w, beta, jump)
@@ -736,10 +733,7 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
         else:
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
-        if use_gpu:
-            lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
-        else:
-            lll_reduce(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
 
 
 # def hybrid_block_reduction(
@@ -947,7 +941,6 @@ def reduce(
     lifting_start = kwds.get("lifting_start")
     if lifting_start is None:
         lifting_start = 0
-    use_gpu = kwds.get("use_gpu") # only for multithreading svp
     time_start = perf_counter_ns()
     try:
         if not beta:
@@ -968,7 +961,7 @@ def reduce(
             if svp_call:
                 G6K_reduce(B, U, U_seysen, lll_size, delta, 4, beta,
                            bkz_tours, bkz_size,
-                           tprof, tracers, debug, use_seysen, jump, svp_call, target_norm, lifting_start, use_gpu)
+                           tprof, tracers, debug, use_seysen, jump, svp_call, target_norm, lifting_start) # always use gpu
             else:
                 # In the literature on BKZ, it is usual to run LLL before calling the SVP oracle in BKZ.
                 # However, it is actually better to preprocess the basis with 4-deep-LLL instead of LLL,

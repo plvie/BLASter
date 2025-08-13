@@ -11,6 +11,8 @@ import numpy as np
 # Local imports
 from blaster_core import ZZ_left_matmul_strided, FT_matmul
 
+from scipy.linalg import solve_triangular
+
 
 # Reduction properties:
 
@@ -235,7 +237,7 @@ def seysen_reduce(R, U):
 
         # U12' = round(-S11^{-1} · S12').
         U[i:j, j:k] = np.rint(
-            FT_matmul(-np.linalg.inv(R[i:j, i:j]), R[i:j, j:k])
+           -solve_triangular(R[i:j, i:j], R[i:j, j:k], lower=False, check_finite=False, overwrite_b=False)
         ).astype(np.int64)
 
         # S12 = S12' + S11 · U12'.
