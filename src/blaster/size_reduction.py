@@ -14,6 +14,9 @@ from blaster_core import ZZ_left_matmul_strided, FT_matmul
 from scipy.linalg import solve_triangular
 
 
+
+_I64_MIN, _I64_MAX = np.iinfo(np.int64).min, np.iinfo(np.int64).max
+
 # Reduction properties:
 
 
@@ -204,7 +207,6 @@ def size_reduce(R, U):
         # U12 = U11 · U12'
         ZZ_left_matmul_strided(U[i:j, i:j], U[i:j, j:k])
 
-
 def seysen_reduce(R, U):
     """
     Perform Seysen's reduction on a matrix R, while keeping track of the transformation matrix U.
@@ -236,9 +238,9 @@ def seysen_reduce(R, U):
         R[i:j, j:k] = FT_matmul(R[i:j, j:k], U[j:k, j:k].astype(np.float64))
 
         # U12' = round(-S11^{-1} · S12').
-        U[i:j, j:k] = np.rint(
+        U[i:j, j:k] = np.clip(np.rint(
            -solve_triangular(R[i:j, i:j], R[i:j, j:k], lower=False, check_finite=False, overwrite_b=False)
-        ).astype(np.int64)
+        ), _I64_MIN, _I64_MAX).astype(np.int64)
 
         # S12 = S12' + S11 · U12'.
         R[i:j, j:k] += FT_matmul(R[i:j, i:j], U[i:j, j:k].astype(np.float64))
