@@ -216,7 +216,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
     streamU = cp.cuda.Stream(non_blocking=True)
     while not is_reduced:
         # — Step 1: QR on GPU
-        t1 = perf_counter_ns()
+        # t1 = perf_counter_ns()
         R_gpu = cp.linalg.qr(B_gpu, mode='r')
         # — Step 2: small‐block LLL on GPU (further work)
 
@@ -224,7 +224,7 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
         # 1) transfer back to host
         cp.asnumpy(R_gpu, out=R_cpu) # synchro CPU-GPU so this is the time to compute also the other stuff
 
-        t2 = perf_counter_ns()
+        # t2 = perf_counter_ns()
         offset = lll_size//2 if offset==0 else 0
         if use_gpu_lll:  # once you have a GPU version
             raise "Not implemented yet"
@@ -295,32 +295,32 @@ def lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
                 #     B_gpu[:, i : i + last_w] = B_gpu[:, i : i + last_w] @ block_vals_last
 
         # — Step 3: re‐QR
-        t3 = perf_counter_ns()
+        # t3 = perf_counter_ns()
         R_gpu = cp.linalg.qr(B_gpu, mode='r')
 
         # — Step 4: Seysen or size‐reduce on GPU
         #synchronyse cupy here
-        t4 = perf_counter_ns()
+        # t4 = perf_counter_ns()
         if use_seysen:
             seysen_reduce_gpu(R_gpu, U_s_gpu)
         else:
             raise "Error not Implemented"
         # — Step 5: update your basis and U on GPU
         # assert is_seysen_reduced(R_gpu)
-        t5 = perf_counter_ns()
+        # t5 = perf_counter_ns()
         # two different stream for this
         with streamU:
             cp.matmul(U_gpu, U_s_gpu, out=U_gpu)
         cp.matmul(B_gpu, U_s_gpu, out=B_gpu)
         # — Step 6: check “weak LLL” on GPU (or pull diag back)
-        t6 = perf_counter_ns()
+        # t6 = perf_counter_ns()
 
 
         is_weakly_lll_reduced_gpu(R_gpu, host_flag, delta)
         
 
-        # profiling & tracing
-        tprof.tick(t2-t1 + t4-t3, t3-t2, 0, t5-t4, t6-t5)
+        # # profiling & tracing
+        # tprof.tick(t2-t1 + t4-t3, t3-t2, 0, t5-t4, t6-t5)
         if logging:
             prof = get_profile_gpu(R_gpu, True).get()
             note = (f"DeepLLL-{depth}" if depth else "LLL", None)
@@ -371,7 +371,7 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
         # Step 2: Call BKZ concurrently on small blocks!
         t2 = perf_counter_ns()
-        print("(BKZ) we are at :", cur_front)
+        # print("(BKZ) we are at :", cur_front)
         # norm_before = abs(R[cur_front, cur_front])
 
         cp.asnumpy(R_gpu, out= R_cpu)
@@ -729,7 +729,7 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
             # reduction was performed at the end, which is the end of a tour.
             cur_front = 0
             tours_done += 1
-            clear_internal_caches(verbose=True)
+            clear_internal_caches()
         else:
             cur_front += (block_size - beta + 1)
         # Perform a final LLL reduction at the end
@@ -814,41 +814,62 @@ def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
 
     while tours_done < bkz_tours:
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
-        t1 = perf_counter_ns()
-        R = np.linalg.qr(B, mode='r')
+        # t1 = perf_counter_ns()
+        # just do it on GPU and fallback to CPU for each part
+        # R = np.linalg.qr(B, mode='r')
+        R_gpu = cp.linalg.qr(cp.asarray(B), mode='r')
+        R = cp.asnumpy(R_gpu)  # copy to CPU for further processing
 
         # Step 2: Call BKZ concurrently on small blocks!
-        t2 = perf_counter_ns()
-        print("(BKZ) we are at :", cur_front)
+        # t2 = perf_counter_ns()
+        # print("(BKZ) we are at :", cur_front)
         # norm_before = abs(R[cur_front, cur_front])
         block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size)
         
 
         # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
-        t3 = perf_counter_ns()
-        R = np.linalg.qr(B, mode='r')
+        # t3 = perf_counter_ns()
+        R_gpu = cp.linalg.qr(cp.asarray(B), mode='r')
+
         # print(abs(R[cur_front, cur_front]), norm_before)
         # assert abs(R[cur_front, cur_front]) <= norm_before
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
         t4 = perf_counter_ns()
         with np.errstate(all='raise'):
-            (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
+            if use_seysen:
+                U_seysen = cp.asarray(U_seysen)  # ensure U_seysen is on GPU
+                seysen_reduce_gpu(R_gpu, U_seysen)
+            else:
+                R = cp.asnumpy(R_gpu)  # copy back to CPU for size reduction
+                size_reduce(R, U_seysen)
+        
 
         # Step 5: Update B and U with transformation from Seysen's reduction.
-        t5 = perf_counter_ns()
-        ZZ_right_matmul(U, U_seysen)
-        ZZ_right_matmul(B, U_seysen)
+        # t5 = perf_counter_ns()
 
-        t6 = perf_counter_ns()
+        U = cp.asarray(U)
+        B = cp.asarray(B)
+        U = cp.matmul(U, U_seysen) 
+        B = cp.matmul(B, U_seysen)
+        U = cp.asnumpy(U)
+        B = cp.asnumpy(B)
 
-        tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
+        # ZZ_right_matmul(U, U_seysen)
+        # ZZ_right_matmul(B, U_seysen)
+
+
+        U_seysen = cp.asnumpy(U_seysen)  # copy back to CPU for size reduction
+
+        # t6 = perf_counter_ns()
+
+        # tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
 
         # After time measurement:
-        prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
-        note = (f"BKZ-{beta}", (beta, tours_done, bkz_tours, cur_front))
-        for tracer in tracers.values():
-            tracer(tprof.num_iterations, prof, note)
+        # prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
+        # note = (f"BKZ-{beta}", (beta, tours_done, bkz_tours, cur_front))
+        # for tracer in tracers.values():
+        #     tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
         if cur_front + beta > n:
@@ -1006,7 +1027,7 @@ def reduce(
         plt.gcf().set_size_inches(16, 9)
         # plt.show()
         ani.save(anim, dpi=120, writer=PillowWriter(fps=5))
-    print(tprof, file=stderr)
+    # print(tprof, file=stderr)
     # prof = get_profile(B)
     # print('\nProfile = [' + ' '.join([f'{x:.2f}' for x in prof]) + ']\n'
     #           f'RHF = {rhf(prof):.5f}^n, slope = {slope(prof):.6f}, '
