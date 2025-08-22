@@ -108,7 +108,6 @@ def __reduction_ranges(n):
     return base_cases, list(reversed(result))
 
 
-import cupy as cp
 
 __reduction_cache = {}
 _rows_h_cache = {}
@@ -249,7 +248,9 @@ def _disable_cublas_graph_capture():
     _orig_set_stream = None
     _cublas_patched = False
 # --- imports & libcublas comme avant ---
-import ctypes, ctypes.util, numpy as np, cupy as cp
+import ctypes
+import ctypes.util
+import cupy as cp
 _libcublas = ctypes.cdll.LoadLibrary(ctypes.util.find_library('cublas'))
 c_void_p, c_int, c_longlong, c_double = ctypes.c_void_p, ctypes.c_int, ctypes.c_longlong, ctypes.c_double
 CUBLAS_OP_N, CUBLAS_OP_T = 0, 1

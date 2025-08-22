@@ -4,7 +4,6 @@ Seysen-reducing a basis.
 
 In comments, the old recursive functions are kept for clarity.
 """
-from functools import cache
 import cupy as cp
 from cupyx.scipy.linalg import solve_triangular
 # Local imports
@@ -93,7 +92,6 @@ def __reduction_ranges_pow2(n: int):
     return base_cases, uniq
 
 
-import cupy as cp
 
 __reduction_cache = {}
 _rows_h_cache = {}
@@ -288,10 +286,7 @@ def clear_internal_caches(trim_pools=True, all_devices=True, verbose=False):
     if verbose: _pool_report("after")
 
 
-import numpy as np
 
-import numpy as np
-import cupy as cp
 
 def babai_last_gpu_batched(b_last_batch_gpu, Q_gpu, R_gpu, eps=1e-12):
     """
