@@ -797,8 +797,70 @@ def G6K_reduce(B, U, U_seysen, lll_size, delta, depth,
 #     U_gpu[...] = U_gpu @ U_full_gpu
 #     B_gpu[...] = B_gpu @ U_full_gpu
 
-
 def bkz_reduce(B, U, U_seysen, lll_size, delta, depth,
+               beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
+    """
+    Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
+    If `depth` is supplied, BLASter's deep-LLL is called in between calls of the SVP oracle.
+    Otherwise BLASter's LLL is run.
+    """
+    # BKZ parameters:
+    n, tours_done, cur_front = B.shape[1], 0, 0
+
+    lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+
+    while tours_done < bkz_tours:
+        # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
+        t1 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+
+        # Step 2: Call BKZ concurrently on small blocks!
+        t2 = perf_counter_ns()
+        print("(BKZ) we are at :", cur_front)
+        # norm_before = abs(R[cur_front, cur_front])
+        block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size)
+        
+
+        # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
+        # Note: it does not destroy the bxb blocks, but everything above these: yes!
+        t3 = perf_counter_ns()
+        R = np.linalg.qr(B, mode='r')
+        # print(abs(R[cur_front, cur_front]), norm_before)
+        # assert abs(R[cur_front, cur_front]) <= norm_before
+        # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
+        t4 = perf_counter_ns()
+        with np.errstate(all='raise'):
+            (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
+
+        # Step 5: Update B and U with transformation from Seysen's reduction.
+        t5 = perf_counter_ns()
+        ZZ_right_matmul(U, U_seysen)
+        ZZ_right_matmul(B, U_seysen)
+
+        t6 = perf_counter_ns()
+
+        tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
+
+        # After time measurement:
+        prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
+        note = (f"BKZ-{beta}", (beta, tours_done, bkz_tours, cur_front))
+        for tracer in tracers.values():
+            tracer(tprof.num_iterations, prof, note)
+
+        # After printing: update the current location of the 'reduction front'
+        if cur_front + beta > n:
+            # Maybe a issue here, if beta = 40 bkz_size=100 on a 600 matrix is buggy
+            cur_front = 0
+            tours_done += 1
+            clear_internal_caches(verbose=True) # avoid too huge cache from cupy and not each LLL for limit overhead
+        else:
+            cur_front += (bkz_size - beta + 1)
+            #cur_front += 1
+
+        # Perform a final LLL reduction at the end
+        lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
+
+def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
                beta, bkz_tours, bkz_size, tprof, tracers, debug, use_seysen):
     """
     Perform BLASter's BKZ reduction on basis B, and keep track of the transformation in U.
