@@ -766,50 +766,55 @@ def bkz_reduce_gpu(B, U, U_seysen, lll_size, delta, depth,
 
     while tours_done < bkz_tours:
         # Step 1: QR-decompose B, and only store the upper-triangular matrix R.
-        t1 = perf_counter_ns()
+        #t1 = perf_counter_ns()
         R_gpu = cp.linalg.qr(cp.asarray(B), mode='r')
         R = cp.asnumpy(R_gpu)  # copy to CPU for further processing
 
         # Step 2: Call BKZ concurrently on small blocks!
-        t2 = perf_counter_ns()
-        print("(BKZ) we are at :", cur_front)
+        #t2 = perf_counter_ns()
         # norm_before = abs(R[cur_front, cur_front])
         block_bkz(beta, R, B, U, delta, cur_front % beta, bkz_size)
         
 
         # Step 3: QR-decompose again because BKZ "destroys" the QR decomposition.
         # Note: it does not destroy the bxb blocks, but everything above these: yes!
-        t3 = perf_counter_ns()
+        #t3 = perf_counter_ns()
         R_gpu = cp.linalg.qr(cp.asarray(B), mode='r')
         R = cp.asnumpy(R_gpu)  # copy to CPU for further processing
         # print(abs(R[cur_front, cur_front]), norm_before)
         # assert abs(R[cur_front, cur_front]) <= norm_before
         # Step 4: Seysen reduce or size reduce the upper-triangular matrix R.
-        t4 = perf_counter_ns()
+        #t4 = perf_counter_ns()
         with np.errstate(all='raise'):
-            (seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
+            if use_seysen:
+                U_seysen_gpu = cp.asarray(U_seysen)
+                seysen_reduce_gpu(R_gpu, U_seysen_gpu)
+                U_seysen = cp.asnumpy(U_seysen_gpu)
+                #(seysen_reduce if use_seysen else size_reduce)(R, U_seysen)
+            else:
+                size_reduce(R, U_seysen)
 
         # Step 5: Update B and U with transformation from Seysen's reduction.
-        t5 = perf_counter_ns()
+        #t5 = perf_counter_ns()
         ZZ_right_matmul(U, U_seysen)
         ZZ_right_matmul(B, U_seysen)
 
-        t6 = perf_counter_ns()
+        #t6 = perf_counter_ns()
 
-        tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
+        #tprof.tick(t2 - t1 + t4 - t3, 0, t3 - t2, t5 - t4, t6 - t5)
 
         # After time measurement:
-        prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
-        note = (f"BKZ-{beta}", (beta, tours_done, bkz_tours, cur_front))
-        for tracer in tracers.values():
-            tracer(tprof.num_iterations, prof, note)
+        #prof = get_profile(R, True)  # Seysen did not modify the diagonal of R
+        #note = (f"BKZ-{beta}", (beta, tours_done, bkz_tours, cur_front))
+        #for tracer in tracers.values():
+        #    tracer(tprof.num_iterations, prof, note)
 
         # After printing: update the current location of the 'reduction front'
         if cur_front + beta > n:
             # Maybe a issue here, if beta = 40 bkz_size=100 on a 600 matrix is buggy
             cur_front = 0
             tours_done += 1
-            clear_internal_caches(verbose=True) # avoid too huge cache from cupy and not each LLL for limit overhead
+            clear_internal_caches() # avoid too huge cache from cupy and not each LLL for limit overhead
         else:
             cur_front += (bkz_size - beta + 1)
             #cur_front += 1
@@ -895,7 +900,7 @@ def reduce(
     lifting_start = kwds.get("lifting_start")
     if lifting_start is None:
         lifting_start = 0
-    time_start = perf_counter_ns()
+    #time_start = perf_counter_ns()
     try:
         if not beta:
             lll_reduce_gpu(B, U, U_seysen, lll_size, delta, depth, tprof, tracers, debug, use_seysen)
@@ -943,8 +948,8 @@ def reduce(
                             tprof, tracers, debug, use_seysen)
     except KeyboardInterrupt:
         pass  # When interrupted, give the partially reduced basis.
-    time_end = perf_counter_ns()
-    print(f"\nTotal time: {(time_end - time_start) * 10**-9:.3f}s", file=stderr)
+    # time_end = perf_counter_ns()
+    # print(f"\nTotal time: {(time_end - time_start) * 10**-9:.3f}s", file=stderr)
     # Close logfile
     if has_logfile:
         logfile.close()

@@ -284,22 +284,3 @@ def clear_internal_caches(trim_pools=True, all_devices=True, verbose=False):
         cp.get_default_pinned_memory_pool().free_all_blocks()
 
     if verbose: _pool_report("after")
-
-
-
-
-def babai_last_gpu_batched(b_last_batch_gpu, Q_gpu, R_gpu, eps=1e-12):
-    """
-    Batched Babai on a batch of last columns
-    """
-    # t = Q^T b, TRSV batched, u = -round(c), w = R u
-    T = Q_gpu.T @ b_last_batch_gpu
-    #solve triangular batched only with prerelease cupy (needed to by tried)
-    
-    # C = solve_triangular(R_gpu, T, lower=False, trans='N',
-    #                      unit_diagonal=False, check_finite=False)
-    C = cp.linalg.solve(R_gpu, T)
-    U = -cp.rint(C)
-    W = R_gpu @ U
-    bprime_batch = b_last_batch_gpu + Q_gpu @ W
-    return bprime_batch
